@@ -1,0 +1,892 @@
+--- git status ---
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   src/mjlab/asset_zoo/robots/unitree_go1/go1_constants.py
+	modified:   src/mjlab/tasks/velocity/mdp/rewards.py
+	modified:   src/mjlab/tasks/velocity/velocity_env_cfg.py
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/src/mjlab/asset_zoo/robots/unitree_go1/go1_constants.py b/src/mjlab/asset_zoo/robots/unitree_go1/go1_constants.py
+index 0e010b3..84d9bf3 100644
+--- a/src/mjlab/asset_zoo/robots/unitree_go1/go1_constants.py
++++ b/src/mjlab/asset_zoo/robots/unitree_go1/go1_constants.py
+@@ -1,9 +1,12 @@
+ """Unitree Go1 constants (Student Version with TODOs and Explanations)."""
+ 
++
+ from pathlib import Path
+ 
++
+ import mujoco
+ 
++
+ from mjlab import MJLAB_SRC_PATH
+ from mjlab.actuator import BuiltinPositionActuatorCfg
+ from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
+@@ -11,21 +14,26 @@ from mjlab.utils.actuator import ElectricActuator, reflected_inertia
+ from mjlab.utils.os import update_assets
+ from mjlab.utils.spec_config import CollisionCfg
+ 
++
+ ##
+ # MJCF and assets.
+ ##
+ 
++
+ # ---------------------------------------------------------------------------
+ # Part2 (a) Specify robot
+ # ---------------------------------------------------------------------------
+ 
++
+ # TODO: Load the correct "go1.xml" file for your setup.
+ GO1_XML: Path = (
+-  MJLAB_SRC_PATH / "asset_zoo" / "robots" / "unitree_go1" / ???????
++  MJLAB_SRC_PATH / "asset_zoo" / "robots" / "unitree_go1" / "xmls" / "go1.xml"
+ )
+ assert GO1_XML.exists(), f"GO1 XML not found at {GO1_XML}"
+ 
+ 
++
++
+ def get_assets(meshdir: str) -> dict[str, bytes]:
+   """Load mesh/texture assets for the robot."""
+   assets: dict[str, bytes] = {}
+@@ -33,6 +41,8 @@ def get_assets(meshdir: str) -> dict[str, bytes]:
+   return assets
+ 
+ 
++
++
+ def get_spec() -> mujoco.MjSpec:
+   """Load the MJCF file and attach required assets."""
+   spec = mujoco.MjSpec.from_file(str(GO1_XML))
+@@ -40,38 +50,47 @@ def get_spec() -> mujoco.MjSpec:
+   return spec
+ 
+ 
++
++
+ ##
+ # Actuator config.
+ ##
+ 
++
+ # Rotor inertia (from Go1 URDF; rotation about x-axis).
+ ROTOR_INERTIA = 0.000111842
+ 
++
+ # Gear ratios for hip and knee joints.
+ HIP_GEAR_RATIO = 6
+ KNEE_GEAR_RATIO = HIP_GEAR_RATIO * 1.5
+ 
++
+ #--------------------------------------------------------------------------#
+ # Students must fill in the missing effort and velocity limits.
+ # These come from the real Go1 hardware specs. Refer to the writeup for values.
+ #--------------------------------------------------------------------------#
+ 
++
+ HIP_ACTUATOR = ElectricActuator(
+-  reflected_inertia=,   # TODO: calculate armature based on rotor inertia and gear ratios
+-  velocity_limit=,      # TODO: Insert max joint velocity (rad/s).
+-  effort_limit=,        # TODO: Insert torque limit (Nm).
++  reflected_inertia= reflected_inertia(ROTOR_INERTIA, HIP_GEAR_RATIO),   # TODO: calculate armature based on rotor inertia and gear ratios
++  velocity_limit=30.1,      # TODO: Insert max joint velocity (rad/s).
++  effort_limit=23.7,        # TODO: Insert torque limit (Nm).
+ )
+ 
++
+ KNEE_ACTUATOR = ElectricActuator(
+-  reflected_inertia=,   # TODO: calculate armature based on rotor inertia and gear ratios
+-  velocity_limit=,      # TODO: Insert max joint velocity (rad/s).
+-  effort_limit=,        # TODO: Insert torque limit (Nm).
++  reflected_inertia=reflected_inertia(ROTOR_INERTIA, KNEE_GEAR_RATIO),   # TODO: calculate armature based on rotor inertia and gear ratios
++  velocity_limit=20.06,      # TODO: Insert max joint velocity (rad/s).
++  effort_limit=35.55,        # TODO: Insert torque limit (Nm).
+ )
+ 
++
+ # Natural frequency and damping ratio for PD-like actuator behavior.
+ # These are typical choices for stable position-control hardware.
+-NATURAL_FREQ = ????? * 2.0 * 3.1415926535   # 10 Hz stiffness shaping
+-DAMPING_RATIO = ??????                    # Critically damped-ish behavior
++NATURAL_FREQ = 10.0 * 2.0 * 3.1415926535   # 10 Hz stiffness shaping
++DAMPING_RATIO = 2.0                    # Critically damped-ish behavior
++
+ 
+ #--------------------------------------------------------------------------#
+ # We provide a heuristic formula to compute PD gains as follows,
+@@ -79,11 +98,14 @@ DAMPING_RATIO = ??????                    # Critically damped-ish behavior
+ # for both hip and knee actuators.
+ #--------------------------------------------------------------------------#
+ 
+-STIFFNESS_HIP = ????    
+-DAMPING_HIP = ????     
+ 
+-STIFFNESS_KNEE = ????   
+-DAMPING_KNEE = ????     
++STIFFNESS_HIP = HIP_ACTUATOR.reflected_inertia * (NATURAL_FREQ ** 2)  
++DAMPING_HIP = 2 * DAMPING_RATIO * HIP_ACTUATOR.reflected_inertia * NATURAL_FREQ    
++
++
++STIFFNESS_KNEE = KNEE_ACTUATOR.reflected_inertia * (NATURAL_FREQ ** 2)  
++DAMPING_KNEE = 2 * DAMPING_RATIO * KNEE_ACTUATOR.reflected_inertia * NATURAL_FREQ    
++
+ 
+ # Builtin PD position actuators for hip and knee joints.
+ GO1_HIP_ACTUATOR_CFG = BuiltinPositionActuatorCfg(
+@@ -94,6 +116,7 @@ GO1_HIP_ACTUATOR_CFG = BuiltinPositionActuatorCfg(
+   armature=HIP_ACTUATOR.reflected_inertia,
+ )
+ 
++
+ GO1_KNEE_ACTUATOR_CFG = BuiltinPositionActuatorCfg(
+   joint_names_expr=(".*_calf_joint",),
+   stiffness=STIFFNESS_KNEE,
+@@ -102,12 +125,14 @@ GO1_KNEE_ACTUATOR_CFG = BuiltinPositionActuatorCfg(
+   armature=KNEE_ACTUATOR.reflected_inertia,
+ )
+ 
++
+ ##
+ # Keyframe initial state.
+ ##
+ # These joint angles represent a stable “standing” pose for Go1.
+ #
+ 
++
+ INIT_STATE = EntityCfg.InitialStateCfg(
+   pos=(0.0, 0.0, 0.278),
+   joint_pos={
+@@ -119,6 +144,7 @@ INIT_STATE = EntityCfg.InitialStateCfg(
+   joint_vel={".*": 0.0},
+ )
+ 
++
+ ##
+ # Collision config.
+ ##
+@@ -129,8 +155,10 @@ INIT_STATE = EntityCfg.InitialStateCfg(
+ # FULL_COLLISION: enables collisions everywhere but with special foot rules.
+ #
+ 
++
+ _foot_regex = "^[FR][LR]_foot_collision$"
+ 
++
+ FEET_ONLY_COLLISION = CollisionCfg(
+   geom_names_expr=(_foot_regex,),
+   contype=0,
+@@ -141,6 +169,7 @@ FEET_ONLY_COLLISION = CollisionCfg(
+   solimp=(0.9, 0.95, 0.023),
+ )
+ 
++
+ FULL_COLLISION = CollisionCfg(
+   geom_names_expr=(".*_collision",),
+   condim={_foot_regex: 3, ".*_collision": 1},
+@@ -151,10 +180,12 @@ FULL_COLLISION = CollisionCfg(
+   conaffinity=0,
+ )
+ 
++
+ ##
+ # Final articulation config (students do not change this).
+ ##
+ 
++
+ GO1_ARTICULATION = EntityArticulationInfoCfg(
+   actuators=(
+     GO1_HIP_ACTUATOR_CFG,
+@@ -163,9 +194,11 @@ GO1_ARTICULATION = EntityArticulationInfoCfg(
+   soft_joint_pos_limit_factor=0.9,
+ )
+ 
++
+ def get_go1_robot_cfg() -> EntityCfg:
+   """Return a fresh Go1 robot configuration.
+ 
++
+   Students should not modify this; the purpose is to ensure
+   environment instantiation always receives a clean config.
+   """
+@@ -177,6 +210,8 @@ def get_go1_robot_cfg() -> EntityCfg:
+   )
+ 
+ 
++
++
+ ##
+ # Action scaling computation.
+ ##
+@@ -185,6 +220,7 @@ def get_go1_robot_cfg() -> EntityCfg:
+ # Students should examine this, but not modify it.
+ ##
+ 
++
+ GO1_ACTION_SCALE: dict[str, float] = {}
+ for a in GO1_ARTICULATION.actuators:
+   assert isinstance(a, BuiltinPositionActuatorCfg)
+@@ -193,4 +229,5 @@ for a in GO1_ARTICULATION.actuators:
+   names = a.joint_names_expr
+   assert e is not None
+   for n in names:
+-    GO1_ACTION_SCALE[n] = ???????
+\ No newline at end of file
++    GO1_ACTION_SCALE[n] = 0.25 * (e / s)
++
+diff --git a/src/mjlab/tasks/velocity/mdp/rewards.py b/src/mjlab/tasks/velocity/mdp/rewards.py
+index 792d20c..7f3e261 100644
+--- a/src/mjlab/tasks/velocity/mdp/rewards.py
++++ b/src/mjlab/tasks/velocity/mdp/rewards.py
+@@ -1,9 +1,12 @@
+ from __future__ import annotations
+ 
++
+ from typing import TYPE_CHECKING
+ 
++
+ import torch
+ 
++
+ from mjlab.entity import Entity
+ from mjlab.managers.manager_term_config import RewardTermCfg
+ from mjlab.managers.scene_entity_config import SceneEntityCfg
+@@ -13,13 +16,50 @@ from mjlab.third_party.isaaclab.isaaclab.utils.string import (
+   resolve_matching_names_values,
+ )
+ 
++
+ if TYPE_CHECKING:
+   from mjlab.envs import ManagerBasedRlEnv
+ 
+ 
++
++
+ _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
+ 
+ 
++
++
++# Added for Section 1(d): Regularization Math
++def joint_limit_penalty(
++  env: ManagerBasedRlEnv,
++  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++) -> torch.Tensor:
++  """Penalize joint positions that are approaching their limits."""
++  asset: Entity = env.scene[asset_cfg.name]
++  joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
++ 
++  limits = asset.data.soft_joint_pos_limits[:, asset_cfg.joint_ids, :]
++  out_of_limits = (joint_pos - limits[..., 1]).clip(min=0.0) + (limits[..., 0] - joint_pos).clip(min=0.0)
++ 
++  return torch.sum(out_of_limits, dim=1)
++
++
++
++
++def action_rate_penalty(
++  env: ManagerBasedRlEnv,
++  command_name: str | None = None,
++) -> torch.Tensor:
++  """Penalize large changes in actions (smoothness)."""
++  diff = env.action_manager.action - env.action_manager.prev_action
++  return torch.sum(torch.square(diff), dim=1)
++
++
++
++
++
++
++
++
+ def track_linear_velocity(
+   env: ManagerBasedRlEnv,
+   std: float,
+@@ -28,6 +68,7 @@ def track_linear_velocity(
+ ) -> torch.Tensor:
+   """Reward for tracking the commanded base linear velocity.
+ 
++
+   The commanded z velocity is assumed to be zero.
+   """
+   asset: Entity = env.scene[asset_cfg.name]
+@@ -40,6 +81,8 @@ def track_linear_velocity(
+   return torch.exp(-lin_vel_error / std**2)
+ 
+ 
++
++
+ def track_angular_velocity(
+   env: ManagerBasedRlEnv,
+   std: float,
+@@ -48,6 +91,7 @@ def track_angular_velocity(
+ ) -> torch.Tensor:
+   """Reward heading error for heading-controlled envs, angular velocity for others.
+ 
++
+   The commanded xy angular velocities are assumed to be zero.
+   """
+   asset: Entity = env.scene[asset_cfg.name]
+@@ -59,6 +103,7 @@ def track_angular_velocity(
+   ang_vel_error = z_error + xy_error
+   return torch.exp(-ang_vel_error / std**2)
+ 
++
+ def default_joint_position(
+   env,
+   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+@@ -70,6 +115,8 @@ def default_joint_position(
+   return torch.sum(torch.abs(current_joint_pos - desired_joint_pos), dim=1)
+ 
+ 
++
++
+ def flat_orientation(
+   env: ManagerBasedRlEnv,
+   std: float,
+@@ -77,11 +124,13 @@ def flat_orientation(
+ ) -> torch.Tensor:
+   """Reward flat base orientation (robot being upright).
+ 
++
+   If asset_cfg has body_ids specified, computes the projected gravity
+   for that specific body. Otherwise, uses the root link projected gravity.
+   """
+   asset: Entity = env.scene[asset_cfg.name]
+ 
++
+   # If body_ids are specified, compute projected gravity for that body.
+   if asset_cfg.body_ids:
+     body_quat_w = asset.data.body_link_quat_w[:, asset_cfg.body_ids, :]  # [B, N, 4]
+@@ -95,9 +144,12 @@ def flat_orientation(
+   return torch.exp(-xy_squared / std**2)
+ 
+ 
++
++
+ def self_collision_cost(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
+   """Penalize self-collisions.
+ 
++
+   Returns the number of self-collisions detected by the specified contact sensor.
+   """
+   sensor: ContactSensor = env.scene[sensor_name]
+@@ -105,6 +157,8 @@ def self_collision_cost(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tenso
+   return sensor.data.found.squeeze(-1)
+ 
+ 
++
++
+ def body_angular_velocity_penalty(
+   env: ManagerBasedRlEnv,
+   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+@@ -117,6 +171,8 @@ def body_angular_velocity_penalty(
+   return torch.sum(torch.square(ang_vel_xy), dim=1)
+ 
+ 
++
++
+ def angular_momentum_penalty(
+   env: ManagerBasedRlEnv,
+   sensor_name: str,
+@@ -130,6 +186,8 @@ def angular_momentum_penalty(
+   return angmom_magnitude_sq
+ 
+ 
++
++
+ def feet_air_time(
+   env: ManagerBasedRlEnv,
+   sensor_name: str,
+@@ -162,6 +220,8 @@ def feet_air_time(
+   return reward
+ 
+ 
++
++
+ def feet_clearance(
+   env: ManagerBasedRlEnv,
+   target_height: float,
+@@ -187,9 +247,12 @@ def feet_clearance(
+   return cost
+ 
+ 
++
++
+ class feet_swing_height:
+   """Penalize deviation from target swing height, evaluated at landing."""
+ 
++
+   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+     self.sensor_name = cfg.params["sensor_name"]
+     self.site_names = cfg.params["asset_cfg"].site_names
+@@ -198,6 +261,7 @@ class feet_swing_height:
+     )
+     self.step_dt = env.step_dt
+ 
++
+   def __call__(
+     self,
+     env: ManagerBasedRlEnv,
+@@ -239,6 +303,8 @@ class feet_swing_height:
+     return cost
+ 
+ 
++
++
+ def feet_slip(
+   env: ManagerBasedRlEnv,
+   sensor_name: str,
+@@ -269,6 +335,8 @@ def feet_slip(
+   return cost
+ 
+ 
++
++
+ def soft_landing(
+   env: ManagerBasedRlEnv,
+   sensor_name: str,
+@@ -298,17 +366,22 @@ def soft_landing(
+   return cost
+ 
+ 
++
++
+ class variable_posture:
+   """Penalize deviation from default pose, with tighter constraints when standing."""
+ 
++
+   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+     asset: Entity = env.scene[cfg.params["asset_cfg"].name]
+     default_joint_pos = asset.data.default_joint_pos
+     assert default_joint_pos is not None
+     self.default_joint_pos = default_joint_pos
+ 
++
+     _, joint_names = asset.find_joints(cfg.params["asset_cfg"].joint_names)
+ 
++
+     _, _, std_standing = resolve_matching_names_values(
+       data=cfg.params["std_standing"],
+       list_of_strings=joint_names,
+@@ -317,18 +390,21 @@ class variable_posture:
+       std_standing, device=env.device, dtype=torch.float32
+     )
+ 
++
+     _, _, std_walking = resolve_matching_names_values(
+       data=cfg.params["std_walking"],
+       list_of_strings=joint_names,
+     )
+     self.std_walking = torch.tensor(std_walking, device=env.device, dtype=torch.float32)
+ 
++
+     _, _, std_running = resolve_matching_names_values(
+       data=cfg.params["std_running"],
+       list_of_strings=joint_names,
+     )
+     self.std_running = torch.tensor(std_running, device=env.device, dtype=torch.float32)
+ 
++
+   def __call__(
+     self,
+     env: ManagerBasedRlEnv,
+@@ -342,28 +418,37 @@ class variable_posture:
+   ) -> torch.Tensor:
+     del std_standing, std_walking, std_running  # Unused.
+ 
++
+     asset: Entity = env.scene[asset_cfg.name]
+     command = env.command_manager.get_command(command_name)
+     assert command is not None
+ 
++
+     linear_speed = torch.norm(command[:, :2], dim=1)
+     angular_speed = torch.abs(command[:, 2])
+     total_speed = linear_speed + angular_speed
+ 
++
+     standing_mask = (total_speed < walking_threshold).float()
+     walking_mask = (
+       (total_speed >= walking_threshold) & (total_speed < running_threshold)
+     ).float()
+     running_mask = (total_speed >= running_threshold).float()
+ 
++
+     std = (
+       self.std_standing * standing_mask.unsqueeze(1)
+       + self.std_walking * walking_mask.unsqueeze(1)
+       + self.std_running * running_mask.unsqueeze(1)
+     )
+ 
++
+     current_joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
+     desired_joint_pos = self.default_joint_pos[:, asset_cfg.joint_ids]
+     error_squared = torch.square(current_joint_pos - desired_joint_pos)
+ 
++
+     return torch.exp(-torch.mean(error_squared / (std**2), dim=1))
++
++
++
+diff --git a/src/mjlab/tasks/velocity/velocity_env_cfg.py b/src/mjlab/tasks/velocity/velocity_env_cfg.py
+index 3cf75d2..235916e 100644
+--- a/src/mjlab/tasks/velocity/velocity_env_cfg.py
++++ b/src/mjlab/tasks/velocity/velocity_env_cfg.py
+@@ -1,12 +1,15 @@
+ """Velocity tracking task configuration.
+ 
++
+ This module defines the base configuration for velocity tracking tasks.
+ Robot-specific configurations are located in the config/ directory.
+ """
+ 
++
+ import math
+ from copy import deepcopy
+ 
++
+ from mjlab.entity.entity import EntityCfg
+ from mjlab.envs import ManagerBasedRlEnvCfg
+ from mjlab.envs.mdp.actions import JointPositionActionCfg
+@@ -31,6 +34,7 @@ from mjlab.terrains.config import ROUGH_TERRAINS_CFG
+ from mjlab.utils.noise import UniformNoiseCfg as Unoise
+ from mjlab.viewer import ViewerConfig
+ 
++
+ SCENE_CFG = SceneCfg(
+   terrain=TerrainImporterCfg(
+     terrain_type="generator",
+@@ -41,6 +45,7 @@ SCENE_CFG = SceneCfg(
+   extent=2.0,
+ )
+ 
++
+ VIEWER_CONFIG = ViewerConfig(
+   origin_type=ViewerConfig.OriginType.ASSET_BODY,
+   asset_name="robot",
+@@ -50,6 +55,7 @@ VIEWER_CONFIG = ViewerConfig(
+   azimuth=90.0,
+ )
+ 
++
+ SIM_CFG = SimulationCfg(
+   nconmax=35,
+   njmax=300,
+@@ -61,6 +67,8 @@ SIM_CFG = SimulationCfg(
+ )
+ 
+ 
++
++
+ def create_velocity_env_cfg(
+   robot_cfg: EntityCfg,
+   action_scale: float | dict[str, float],
+@@ -75,6 +83,7 @@ def create_velocity_env_cfg(
+ ) -> ManagerBasedRlEnvCfg:
+   """Create a velocity locomotion task configuration.
+ 
++
+   Args:
+     robot_cfg: Robot configuration (with sensors).
+     action_scale: Action scaling factor(s).
+@@ -87,25 +96,31 @@ def create_velocity_env_cfg(
+     posture_std_walking: Joint std devs for walking posture reward.
+     posture_std_running: Joint std devs for running posture reward.
+ 
++
+   Returns:
+     Complete ManagerBasedRlEnvCfg for velocity task.
+   """
+   scene = deepcopy(SCENE_CFG)
+ 
++
+   scene.entities = {"robot": robot_cfg}
+ 
++
+   scene.sensors = (
+     feet_sensor_cfg,
+     self_collision_sensor_cfg,
+   )
+ 
++
+   # Enable curriculum mode for terrain generator.
+   if scene.terrain is not None and scene.terrain.terrain_generator is not None:
+     scene.terrain.terrain_generator.curriculum = True
+ 
++
+   viewer = deepcopy(VIEWER_CONFIG)
+   viewer.body_name = viewer_body_name
+ 
++
+   # Actions are provided for you.
+   actions: dict[str, ActionTermCfg] = {
+     "joint_pos": JointPositionActionCfg(
+@@ -116,6 +131,7 @@ def create_velocity_env_cfg(
+     )
+   }
+ 
++
+   # ---------------------------------------------------------------------------
+   # Part2 (b) Specify command
+   # ---------------------------------------------------------------------------
+@@ -123,24 +139,65 @@ def create_velocity_env_cfg(
+   # The task is to track a desired linear and yaw velocity (twist).
+   # Hint: use a `UniformVelocityCommandCfg`.
+   commands: dict[str, CommandTermCfg] = {
+-    "twist": UniformVelocityCommandCfg()
++    "twist": UniformVelocityCommandCfg(
++        asset_name="robot",
++        resampling_time_range=(3.0, 8.0),
++        rel_standing_envs=0.1,    # 10% standing
++        rel_heading_envs=0.3,     # 30% turning (heading)
++        heading_command=True,
++        heading_control_stiffness=1.0,
++
++
++        ranges=UniformVelocityCommandCfg.Ranges(
++            lin_vel_x=(-1.0, 1.0),
++            lin_vel_y=(-1.0, 1.0),
++            ang_vel_z=(-1.0, 1.0),
++            heading=(-math.pi, math.pi),
++        ),
++
++
++    )
+   }
+ 
++
+   # ---------------------------------------------------------------------------
+   # Part2 (f) Writing observations
+   # ---------------------------------------------------------------------------
+   # TODO(f): define observation terms for the policy and critic.
+   # Hint: include IMU linear/angular velocities, projected gravity,
+   # joint positions/velocities, last actions, and the command.
+-  # Joint positions are provided as a reference. 
++  # Joint positions are provided as a reference.
+   policy_terms: dict[str, ObservationTermCfg] = {
+     "joint_pos": ObservationTermCfg(
+       func=mdp.joint_pos_rel,
+       noise=Unoise(n_min=-0.01, n_max=0.01), # Define sensor noise range
+     ),
+-    ........... # add more terms here
++    "joint_vel": ObservationTermCfg(
++      func=mdp.joint_vel_rel,
++      noise=Unoise(n_min=-1.5, n_max=1.5),
++    ),
++    "base_lin_vel": ObservationTermCfg(
++      func=mdp.base_lin_vel,
++      noise=Unoise(n_min=-0.5, n_max=0.5),
++    ),
++    "base_ang_vel": ObservationTermCfg(
++      func=mdp.base_ang_vel,
++      noise=Unoise(n_min=-0.2, n_max=0.2),
++    ),
++    "projected_gravity": ObservationTermCfg(
++      func=mdp.projected_gravity,
++      noise=Unoise(n_min=-0.05, n_max=0.05),
++    ),
++    "last_action": ObservationTermCfg(
++      func=mdp.last_action,
++    ),
++    "commands": ObservationTermCfg(
++      func=mdp.generated_commands,
++      params={"command_name": "twist"},
++    ),
+   }
+ 
++
+   critic_terms = {
+     **policy_terms,
+     # ---------------------------------------------------------------------------
+@@ -150,24 +207,26 @@ def create_velocity_env_cfg(
+     # Hint: Consider gait information such as foot contact, air time, or height.
+   }
+ 
++
+   observations = {
+     "policy": ObservationGroupCfg(
+       terms=policy_terms,
+       concatenate_terms=True,
+-      enable_corruption=??????,
++      enable_corruption=True,
+     ),
+     "critic": ObservationGroupCfg(
+       terms=critic_terms,
+       concatenate_terms=True,
+-      enable_corruption=?????, 
++      enable_corruption=False,
+     ),
+   }
+ 
++
+   # ---------------------------------------------------------------------------
+   # Events (reset, pushes, domain randomization)
+   # ---------------------------------------------------------------------------
+   events = {
+-    # Reset functions for the start of an episode are provided for you. 
++    # Reset functions for the start of an episode are provided for you.
+     # Reset the base position and orientation is necessary because the robot's initial state can vary in the environment.
+     "reset_base": EventTermCfg(
+       func=mdp.reset_root_state_uniform,
+@@ -192,25 +251,33 @@ def create_velocity_env_cfg(
+     # -------------------------------------------------------------------------
+     # TODO(g): add domain randomization event(s).
+ 
++
+     # (1) Randomize the ground friction of the feet using `mdp.randomize_field`.
+     "foot_friction": EventTermCfg(
+       mode="startup",
+-      func=,
++      func=mdp.randomize_field,
+       domain_randomization=True,
+-      params={},
++      params={
++        "field": "geom_friction",
++        "ranges": (0.3, 1.2),
++        "asset_cfg": SceneEntityCfg("robot", geom_names=foot_friction_geom_names),
++      },
+     ),
+ 
+ 
+-
+     # (2) Add random velocity perturbations to the base to learn recovery behaviorusing `mdp.push_by_setting_velocity`.
+     "push_robot": EventTermCfg(
+-      func=,
++      func=mdp.push_by_setting_velocity,
+       mode="interval",
+       interval_range_s=(1.0, 3.0),
+-      params={},
++      params={
++        "velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)},
++        "asset_cfg": SceneEntityCfg("robot"),
++      },
+     ),
+   }
+ 
++
+   # ---------------------------------------------------------------------------
+   # Rewards
+   # ---------------------------------------------------------------------------
+@@ -221,34 +288,39 @@ def create_velocity_env_cfg(
+     # TODO(c): add objective reward terms.
+     # Hint: track commanded linear and angular velocity.
+ 
++
+     "track_linear_velocity": RewardTermCfg(
+-      func=,
++      func=mdp.track_linear_velocity,
+       weight=2.0,
+-      params={},
++      params={"std": math.sqrt(0.25), "command_name": "twist"},
+     ),
+     "track_angular_velocity": RewardTermCfg(
+-      func=,
++      func=mdp.track_angular_velocity,
+       weight=2.0,
+-      params={},
++      params={"std": math.sqrt(0.25), "command_name": "twist"},
+     ),
+ 
++
+     # -------------------------------------------------------------------------
+     # Part2 (d) Writing regularization
+     # -------------------------------------------------------------------------
+     # TODO(d): add regularization rewards.
+-    # Regularizations are necessary to induce more smooth, natural and realistic behavior. 
+-    # For more realistic behavior, add terms such as: 
++    # Regularizations are necessary to induce more smooth, natural and realistic behavior.
++    # For more realistic behavior, add terms such as:
+     # 1. encouraging the robot to remain upright with mdp.flat_orientation
+     # 2. penalizing large deviations from default joint positions
+ 
++
+     "upright": RewardTermCfg(
+-      func=,
++      func=mdp.flat_orientation,
+       weight=1.0,
+       params={
++        "std": math.sqrt(0.2),
++        "asset_cfg": SceneEntityCfg("robot", body_names="trunk"),
+       },
+     ),
+     "default_joint_pos": RewardTermCfg(
+-      func=,
++      func=mdp.default_joint_position,
+       weight=-0.1,
+       params={
+       },
+@@ -257,46 +329,51 @@ def create_velocity_env_cfg(
+     # 3. penalizing norm of action rate
+     # 4. penalizing reaching the joint position limits
+     "action_rate": RewardTermCfg(
+-      func=, 
++      func=mdp.action_rate_penalty,
+       weight=-0.1
+     ),
+     "dof_pos_limits": RewardTermCfg(
+-      func=, 
++      func=mdp.joint_limit_penalty,
+       weight=-1.0
+     ),
++
++
+     # -------------------------------------------------------------------------
+     # Part3 (a) Writing gait terms
+     # -------------------------------------------------------------------------
+     # TODO(a): add gait-related rewards.
+-    # Even though with the above rewards, the robot can already walk nicely, its gait is not the most desirable, 
+-    # i.e. you can observe significant feet dragging and sometimes slipping. 
++    # Even though with the above rewards, the robot can already walk nicely, its gait is not the most desirable,
++    # i.e. you can observe significant feet dragging and sometimes slipping.
+     # These all create sim-to-real gap because where the robot's feet contact the ground is not perfectly simulated.
+     # Thus, we design gait rewards to encourage feet clearance (so that the feet lift sufficiently during walking to avoid dragging) and penalize foot slip.
+ 
++
+     # Hint: Consider adding the following gait-related rewards:
+     # 1. foot_clearance with mdp.feet_clearance
+     # 2. foot_swing_height with mdp.feet_swing_height
+     # 3. foot_slip with mdp.feet_slip
+   }
+ 
++
+   # ---------------------------------------------------------------------------
+   # Part2 (e) Writing terminations
+   # ---------------------------------------------------------------------------
+   # TODO(e): define termination conditions.
+   # Detect a fall-over / bad-orientation check to avoid continue sampling the environment when the robot is already fallen.
+-  # Hint: Use mdp.bad_orientation with a threshold of 60 degrees. 
++  # Hint: Use mdp.bad_orientation with a threshold of 60 degrees.
+   terminations = {
+     "time_out": TerminationTermCfg(
+       func=mdp.time_out,
+       time_out=True,
+     ),
+     "fell_over": TerminationTermCfg(
+-      func=,
++      func=mdp.bad_orientation,
+       time_out=False,
+-      params={},
++      params={"limit_angle": math.radians(60)},
+     ),
+   }
+ 
++
+   return ManagerBasedRlEnvCfg(
+     scene=scene,
+     observations=observations,
+@@ -310,3 +387,6 @@ def create_velocity_env_cfg(
+     decimation=4,
+     episode_length_s=20.0,
+   )
++
++
++
