@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+
 from typing import TYPE_CHECKING
 
+
 import torch
+
 
 from mjlab.entity import Entity
 from mjlab.managers.manager_term_config import RewardTermCfg
@@ -13,11 +16,48 @@ from mjlab.third_party.isaaclab.isaaclab.utils.string import (
   resolve_matching_names_values,
 )
 
+
 if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
 
 
+
+
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
+
+
+
+
+# Added for Section 1(d): Regularization Math
+def joint_limit_penalty(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Penalize joint positions that are approaching their limits."""
+  asset: Entity = env.scene[asset_cfg.name]
+  joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
+ 
+  limits = asset.data.soft_joint_pos_limits[:, asset_cfg.joint_ids, :]
+  out_of_limits = (joint_pos - limits[..., 1]).clip(min=0.0) + (limits[..., 0] - joint_pos).clip(min=0.0)
+ 
+  return torch.sum(out_of_limits, dim=1)
+
+
+
+
+def action_rate_penalty(
+  env: ManagerBasedRlEnv,
+  command_name: str | None = None,
+) -> torch.Tensor:
+  """Penalize large changes in actions (smoothness)."""
+  diff = env.action_manager.action - env.action_manager.prev_action
+  return torch.sum(torch.square(diff), dim=1)
+
+
+
+
+
+
 
 
 def track_linear_velocity(
@@ -27,6 +67,7 @@ def track_linear_velocity(
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Reward for tracking the commanded base linear velocity.
+
 
   The commanded z velocity is assumed to be zero.
   """
@@ -40,6 +81,8 @@ def track_linear_velocity(
   return torch.exp(-lin_vel_error / std**2)
 
 
+
+
 def track_angular_velocity(
   env: ManagerBasedRlEnv,
   std: float,
@@ -47,6 +90,7 @@ def track_angular_velocity(
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Reward heading error for heading-controlled envs, angular velocity for others.
+
 
   The commanded xy angular velocities are assumed to be zero.
   """
@@ -59,6 +103,7 @@ def track_angular_velocity(
   ang_vel_error = z_error + xy_error
   return torch.exp(-ang_vel_error / std**2)
 
+
 def default_joint_position(
   env,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -70,6 +115,8 @@ def default_joint_position(
   return torch.sum(torch.abs(current_joint_pos - desired_joint_pos), dim=1)
 
 
+
+
 def flat_orientation(
   env: ManagerBasedRlEnv,
   std: float,
@@ -77,10 +124,12 @@ def flat_orientation(
 ) -> torch.Tensor:
   """Reward flat base orientation (robot being upright).
 
+
   If asset_cfg has body_ids specified, computes the projected gravity
   for that specific body. Otherwise, uses the root link projected gravity.
   """
   asset: Entity = env.scene[asset_cfg.name]
+
 
   # If body_ids are specified, compute projected gravity for that body.
   if asset_cfg.body_ids:
@@ -95,14 +144,19 @@ def flat_orientation(
   return torch.exp(-xy_squared / std**2)
 
 
+
+
 def self_collision_cost(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
   """Penalize self-collisions.
+
 
   Returns the number of self-collisions detected by the specified contact sensor.
   """
   sensor: ContactSensor = env.scene[sensor_name]
   assert sensor.data.found is not None
   return sensor.data.found.squeeze(-1)
+
+
 
 
 def body_angular_velocity_penalty(
@@ -117,6 +171,8 @@ def body_angular_velocity_penalty(
   return torch.sum(torch.square(ang_vel_xy), dim=1)
 
 
+
+
 def angular_momentum_penalty(
   env: ManagerBasedRlEnv,
   sensor_name: str,
@@ -128,6 +184,8 @@ def angular_momentum_penalty(
   angmom_magnitude = torch.sqrt(angmom_magnitude_sq)
   env.extras["log"]["Metrics/angular_momentum_mean"] = torch.mean(angmom_magnitude)
   return angmom_magnitude_sq
+
+
 
 
 def feet_air_time(
@@ -162,6 +220,8 @@ def feet_air_time(
   return reward
 
 
+
+
 def feet_clearance(
   env: ManagerBasedRlEnv,
   target_height: float,
@@ -187,8 +247,11 @@ def feet_clearance(
   return cost
 
 
+
+
 class feet_swing_height:
   """Penalize deviation from target swing height, evaluated at landing."""
+
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     self.sensor_name = cfg.params["sensor_name"]
@@ -197,6 +260,7 @@ class feet_swing_height:
       (env.num_envs, len(self.site_names)), device=env.device, dtype=torch.float32
     )
     self.step_dt = env.step_dt
+
 
   def __call__(
     self,
@@ -239,6 +303,8 @@ class feet_swing_height:
     return cost
 
 
+
+
 def feet_slip(
   env: ManagerBasedRlEnv,
   sensor_name: str,
@@ -267,6 +333,8 @@ def feet_slip(
   )
   env.extras["log"]["Metrics/slip_velocity_mean"] = mean_slip_vel
   return cost
+
+
 
 
 def soft_landing(
@@ -298,8 +366,11 @@ def soft_landing(
   return cost
 
 
+
+
 class variable_posture:
   """Penalize deviation from default pose, with tighter constraints when standing."""
+
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     asset: Entity = env.scene[cfg.params["asset_cfg"].name]
@@ -307,7 +378,9 @@ class variable_posture:
     assert default_joint_pos is not None
     self.default_joint_pos = default_joint_pos
 
+
     _, joint_names = asset.find_joints(cfg.params["asset_cfg"].joint_names)
+
 
     _, _, std_standing = resolve_matching_names_values(
       data=cfg.params["std_standing"],
@@ -317,17 +390,20 @@ class variable_posture:
       std_standing, device=env.device, dtype=torch.float32
     )
 
+
     _, _, std_walking = resolve_matching_names_values(
       data=cfg.params["std_walking"],
       list_of_strings=joint_names,
     )
     self.std_walking = torch.tensor(std_walking, device=env.device, dtype=torch.float32)
 
+
     _, _, std_running = resolve_matching_names_values(
       data=cfg.params["std_running"],
       list_of_strings=joint_names,
     )
     self.std_running = torch.tensor(std_running, device=env.device, dtype=torch.float32)
+
 
   def __call__(
     self,
@@ -342,13 +418,16 @@ class variable_posture:
   ) -> torch.Tensor:
     del std_standing, std_walking, std_running  # Unused.
 
+
     asset: Entity = env.scene[asset_cfg.name]
     command = env.command_manager.get_command(command_name)
     assert command is not None
 
+
     linear_speed = torch.norm(command[:, :2], dim=1)
     angular_speed = torch.abs(command[:, 2])
     total_speed = linear_speed + angular_speed
+
 
     standing_mask = (total_speed < walking_threshold).float()
     walking_mask = (
@@ -356,14 +435,20 @@ class variable_posture:
     ).float()
     running_mask = (total_speed >= running_threshold).float()
 
+
     std = (
       self.std_standing * standing_mask.unsqueeze(1)
       + self.std_walking * walking_mask.unsqueeze(1)
       + self.std_running * running_mask.unsqueeze(1)
     )
 
+
     current_joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
     desired_joint_pos = self.default_joint_pos[:, asset_cfg.joint_ids]
     error_squared = torch.square(current_joint_pos - desired_joint_pos)
 
+
     return torch.exp(-torch.mean(error_squared / (std**2), dim=1))
+
+
+
