@@ -108,46 +108,47 @@ def run_play(task: str, cfg: PlayConfig):
     and isinstance(env_cfg.commands["motion"], MotionCommandCfg)
   )
 
-  if is_tracking_task:
-    assert env_cfg.commands is not None
-    motion_cmd = env_cfg.commands["motion"]
-    assert isinstance(motion_cmd, MotionCommandCfg)
+  # if is_tracking_task:
+  #   print("Tracking task")
+  #   assert env_cfg.commands is not None
+  #   motion_cmd = env_cfg.commands["motion"]
+  #   assert isinstance(motion_cmd, MotionCommandCfg)
 
-    if DUMMY_MODE:
-      if not cfg.registry_name:
-        raise ValueError(
-          "Tracking tasks require `registry_name` when using dummy agents."
-        )
-      # Check if the registry name includes alias, if not, append ":latest".
-      registry_name = cfg.registry_name
-      if ":" not in registry_name:
-        registry_name = registry_name + ":latest"
-      import wandb
+  #   if DUMMY_MODE:
+  #     if not cfg.registry_name:
+  #       raise ValueError(
+  #         "Tracking tasks require `registry_name` when using dummy agents."
+  #       )
+  #     # Check if the registry name includes alias, if not, append ":latest".
+  #     registry_name = cfg.registry_name
+  #     if ":" not in registry_name:
+  #       registry_name = registry_name + ":latest"
+  #     import wandb
 
-      api = wandb.Api()
-      artifact = api.artifact(registry_name)
-      motion_cmd.motion_file = str(Path(artifact.download()) / "motion.npz")
-    else:
-      if cfg.motion_file is not None:
-        print(f"[INFO]: Using motion file from CLI: {cfg.motion_file}")
-        motion_cmd.motion_file = cfg.motion_file
-      else:
-        import wandb
+  #     api = wandb.Api()
+  #     artifact = api.artifact(registry_name)
+  #     motion_cmd.motion_file = str(Path(artifact.download()) / "motion.npz")
+  #   else:
+  #     if cfg.motion_file is not None:
+  #       print(f"[INFO]: Using motion file from CLI: {cfg.motion_file}")
+  #       motion_cmd.motion_file = cfg.motion_file
+  #     else:
+  #       import wandb
 
-        api = wandb.Api()
-        if cfg.wandb_run_path is None and cfg.checkpoint_file is not None:
-          raise ValueError(
-            "Tracking tasks require `motion_file` when using `checkpoint_file`, "
-            "or provide `wandb_run_path` so the motion artifact can be resolved."
-          )
-        if cfg.wandb_run_path is not None:
-          wandb_run = api.run(str(cfg.wandb_run_path))
-          art = next(
-            (a for a in wandb_run.used_artifacts() if a.type == "motions"), None
-          )
-          if art is None:
-            raise RuntimeError("No motion artifact found in the run.")
-          motion_cmd.motion_file = str(Path(art.download()) / "motion.npz")
+  #       api = wandb.Api()
+  #       if cfg.wandb_run_path is None and cfg.checkpoint_file is not None:
+  #         raise ValueError(
+  #           "Tracking tasks require `motion_file` when using `checkpoint_file`, "
+  #           "or provide `wandb_run_path` so the motion artifact can be resolved."
+  #         )
+  #       if cfg.wandb_run_path is not None:
+  #         wandb_run = api.run(str(cfg.wandb_run_path))
+  #         art = next(
+  #           (a for a in wandb_run.used_artifacts() if a.type == "motions"), None
+  #         )
+  #         if art is None:
+  #           raise RuntimeError("No motion artifact found in the run.")
+  #         motion_cmd.motion_file = str(Path(art.download()) / "motion.npz")
 
   log_dir: Path | None = None
   resume_path: Path | None = None
@@ -183,22 +184,22 @@ def run_play(task: str, cfg: PlayConfig):
     env_cfg.viewer.width = cfg.video_width
 
   render_mode = "rgb_array" if (TRAINED_MODE and cfg.video) else None
-  if cfg.video and DUMMY_MODE:
-    print(
-      "[WARN] Video recording with dummy agents is disabled (no checkpoint/log_dir)."
-    )
+  # if cfg.video and DUMMY_MODE:
+  #   print(
+  #     "[WARN] Video recording with dummy agents is disabled (no checkpoint/log_dir)."
+  #   )
   env = ManagerBasedRlEnv(cfg=env_cfg, device=device, render_mode=render_mode)
 
-  if TRAINED_MODE and cfg.video:
-    print("[INFO] Recording videos during play")
-    assert log_dir is not None  # log_dir is set in TRAINED_MODE block
-    env = VideoRecorder(
-      env,
-      video_folder=log_dir / "videos" / "play",
-      step_trigger=lambda step: step == 0,
-      video_length=cfg.video_length,
-      disable_logger=True,
-    )
+  # if TRAINED_MODE and cfg.video:
+  #   print("[INFO] Recording videos during play")
+  #   assert log_dir is not None  # log_dir is set in TRAINED_MODE block
+  #   env = VideoRecorder(
+  #     env,
+  #     video_folder=log_dir / "videos" / "play",
+  #     step_trigger=lambda step: step == 0,
+  #     video_length=cfg.video_length,
+  #     disable_logger=True,
+  #   )
 
   env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
   if DUMMY_MODE:
@@ -230,6 +231,65 @@ def run_play(task: str, cfg: PlayConfig):
       )
     runner.load(str(resume_path), map_location=device)
     policy = runner.get_inference_policy(device=device)
+
+  # Run command sequence if requested
+  if env_cfg.commands is not None and "twist" in env_cfg.commands:
+    twist_term = env.unwrapped.command_manager._terms.get("twist")
+    if twist_term is not None:
+      print("[INFO] Running command sequence...")
+      obs, _ = env.reset()
+
+      # Disable automatic command resampling and updates
+      original_compute = twist_term.compute
+      original_update = twist_term._update_command
+      
+      def compute_no_resample(dt: float):
+        # Only update metrics, don't resample or update commands
+        twist_term._update_metrics()
+        # Set time_left to a large value to prevent resampling trigger
+        twist_term.time_left[:] = 1e6
+        # Don't call original_compute to prevent resampling
+        # Don't call _update_command to prevent command modifications
+
+      def update_no_op():
+        # Don't modify commands
+        pass
+
+      twist_term.compute = compute_no_resample
+      twist_term._update_command = update_no_op
+
+      # Command sequence: (vx, vy, ωz) for 125 steps each
+      commands = [
+        ("Forward", lambda step: (0.6, 0.0, 0.0))
+        # ("Forward (ramp 0→0.6)", lambda step: (0.6 * step / 125.0, 0.0, 0.0)),
+        # ("Lateral", lambda step: (0.0, 0.4, 0.0)),
+        # ("Turning", lambda step: (0.0, 0.0, 0.4)),
+        # ("Mixed", lambda step: (0.5, 0.0, 0.3)),
+      ]
+
+      for cmd_name, cmd_func in commands:
+        print(f"  Running: {cmd_name}")
+        for step in range(125):
+          vx, vy, wz = cmd_func(step)
+          
+          with torch.no_grad():
+            actions = policy(obs)
+          
+          # Set commands BEFORE step (they'll persist through compute)
+          twist_term.vel_command_b[:, 0] = vx
+          twist_term.vel_command_b[:, 1] = vy
+          twist_term.vel_command_b[:, 2] = wz
+          
+          obs, _, _, _, _ = env.step(actions)
+          
+          # Set commands AGAIN AFTER step to ensure they persist
+          twist_term.vel_command_b[:, 0] = vx
+          twist_term.vel_command_b[:, 1] = vy
+          twist_term.vel_command_b[:, 2] = wz
+
+      print("[INFO] Command sequence completed.")
+      env.close()
+      return
 
   # Handle "auto" viewer selection.
   if cfg.viewer == "auto":

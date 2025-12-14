@@ -2,13 +2,24 @@ import os
 from importlib.metadata import entry_points
 from pathlib import Path
 
-import warp as wp
+# Try to import warp - it may come from warp-lang package or be bundled with mujoco_warp
+try:
+    import warp as wp
+    _WARP_AVAILABLE = True
+except ImportError:
+    # If direct import fails, warp configuration will be skipped
+    # This is fine for visualization/analysis tasks that don't need GPU simulation
+    _WARP_AVAILABLE = False
+    wp = None
 
 MJLAB_SRC_PATH: Path = Path(__file__).parent
 
 
 def _configure_warp() -> None:
   """Configure Warp globally for mjlab."""
+  if not _WARP_AVAILABLE:
+    return  # Skip warp configuration if not available
+  
   wp.config.enable_backward = False
 
   # Keep warp verbose by default to show kernel compilation progress.

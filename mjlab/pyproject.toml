@@ -58,6 +58,7 @@ play = "mjlab.scripts.play:main"
 demo = "mjlab.scripts.demo:main"
 list_envs = "mjlab.scripts.list_envs:main"
 viz-nan = "mjlab.scripts.nan_viz:main"
+eval = "mjlab.scripts.eval:main"
 
 [dependency-groups]
 dev = [
