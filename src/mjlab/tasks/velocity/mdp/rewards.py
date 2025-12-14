@@ -20,6 +20,28 @@ if TYPE_CHECKING:
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
 
 
+def joint_limit_penalty(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Penalize joint positions that are approaching their limits."""
+  asset: Entity = env.scene[asset_cfg.name]
+  joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
+ 
+  limits = asset.data.soft_joint_pos_limits[:, asset_cfg.joint_ids, :]
+  out_of_limits = (joint_pos - limits[..., 1]).clip(min=0.0) + (limits[..., 0] - joint_pos).clip(min=0.0)
+ 
+  return torch.sum(out_of_limits, dim=1)
+
+def action_rate_penalty(
+  env: ManagerBasedRlEnv,
+  command_name: str | None = None,
+) -> torch.Tensor:
+  """Penalize large changes in actions (smoothness)."""
+  diff = env.action_manager.action - env.action_manager.prev_action
+  return torch.sum(torch.square(diff), dim=1)
+
+
 def track_linear_velocity(
   env: ManagerBasedRlEnv,
   std: float,
