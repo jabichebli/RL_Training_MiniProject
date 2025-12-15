@@ -20,6 +20,12 @@ from mjlab.viewer import ViserPlayViewer
 
 
 def main() -> None:
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # Lists to store data for plotting
+    command_history = []
+    measured_history = []
     possible_paths = [
         Path("/content/mjlab/logs/rsl_rl/go1_velocity/part1/model_650.pt"),
     ]
@@ -118,7 +124,14 @@ def main() -> None:
                 twist_term.vel_command_b[:, 1] = vy  # Lateral
                 twist_term.vel_command_b[:, 2] = wz  # Turning
 
-                # Debug print (only every 25 steps to avoid spam)
+                # Log commanded and measured velocities for plotting
+                command_history.append((vx, vy, wz))
+                measured_lin_vel = env.unwrapped.sim.data.qvel[0, 0:3].cpu().numpy()
+                measured_ang_vel = env.unwrapped.sim.data.qvel[0, 3:6].cpu().numpy()
+                measured_history.append(
+                    (measured_lin_vel[0], measured_lin_vel[1], measured_ang_vel[2])
+                )
+
                 if current_step % 25 == 0:
                     print(
                         f"Step {current_step}: Command vx={vx:.2f}, vy={vy:.2f}, wz={wz:.2f}"
@@ -161,12 +174,59 @@ def main() -> None:
                         f"   Steps {start}-{end}: vx={vx:.1f}, vy={vy:.1f}, wz={wz:.1f}"
                     )
 
-    # Run viewer
-    viewer = ViserPlayViewer(env, policy)
-    viewer.run()
+    num_steps = 500
+    print(f"\nRunning simulation for {num_steps} steps to collect data...")
+
+    obs, _ = env.reset()
+
+    for step in range(num_steps):
+        action = policy(obs)
+        obs, _, _, _ = env.step(action)
+        if (step + 1) % 50 == 0:
+            print(f"  Simulating step {step + 1}/{num_steps}")
+
     env.close()
+
+    command_history = np.array(command_history)
+    measured_history = np.array(measured_history)
+
+    # Create plots
+    time_steps = np.arange(len(command_history))
+    fig, axs = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
+    fig.suptitle("Test-Time Command Tracking Performance", fontsize=16)
+
+    # Linear Velocity X
+    axs[0].plot(time_steps, command_history[:, 0], "r--", label="Commanded vx")
+    axs[0].plot(time_steps, measured_history[:, 0], "b-", label="Measured vx")
+    axs[0].set_ylabel("Velocity (m/s)")
+    axs[0].legend()
+    axs[0].grid(True)
+    axs[0].set_title("Forward Velocity (vx)")
+
+    # Linear Velocity Y
+    axs[1].plot(time_steps, command_history[:, 1], "r--", label="Commanded vy")
+    axs[1].plot(time_steps, measured_history[:, 1], "b-", label="Measured vy")
+    axs[1].set_ylabel("Velocity (m/s)")
+    axs[1].legend()
+    axs[1].grid(True)
+    axs[1].set_title("Lateral Velocity (vy)")
+
+    # Angular Velocity Z (Yaw)
+    axs[2].plot(time_steps, command_history[:, 2], "r--", label="Commanded ωz")
+    axs[2].plot(time_steps, measured_history[:, 2], "b-", label="Measured ωz")
+    axs[2].set_xlabel("Time Steps")
+    axs[2].set_ylabel("Velocity (rad/s)")
+    axs[2].legend()
+    axs[2].grid(True)
+    axs[2].set_title("Yaw Velocity (ωz)")
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+
+    # Save the plot to a file
+    plot_filename = "command_tracking_plot.png"
+    plt.savefig(plot_filename)
+    print(f"Plot saved to {plot_filename}")
 
 
 if __name__ == "__main__":
     main()
-
