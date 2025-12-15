@@ -126,11 +126,9 @@ def main() -> None:
 
                 # Log commanded and measured velocities for plotting
                 command_history.append((vx, vy, wz))
-                measured_lin_vel = env.unwrapped.sim.data.qvel[0, 0:3].cpu().numpy()
-                measured_ang_vel = env.unwrapped.sim.data.qvel[0, 3:6].cpu().numpy()
-                measured_history.append(
-                    (measured_lin_vel[0], measured_lin_vel[1], measured_ang_vel[2])
-                )
+                lin_vel_b = env.unwrapped.scene["robot"].data.root_link_lin_vel_b[0].cpu().numpy()
+                ang_vel_b = env.unwrapped.scene["robot"].data.root_link_ang_vel_b[0].cpu().numpy()
+                measured_history.append((lin_vel_b[0], lin_vel_b[1], ang_vel_b[2]))
 
                 if current_step % 25 == 0:
                     print(
