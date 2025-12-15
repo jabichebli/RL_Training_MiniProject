@@ -79,7 +79,7 @@ def main() -> None:
   runner.load(checkpoint_path, map_location=device)
   policy = runner.get_inference_policy(device=device)
   
-  # Set constant forward velocity command
+  # Set time-based velocity commands
   if env_cfg.commands is not None and "twist" in env_cfg.commands:
     twist_term = env.unwrapped.command_manager._terms.get("twist")
     if twist_term is not None:
@@ -87,31 +87,101 @@ def main() -> None:
       original_compute = twist_term.compute
       original_update = twist_term._update_command
       
-      # Constant forward velocity: 0.6 m/s
-      forward_vel = 0.6
+      # Define command sequence based on timesteps
+      # Format: (start_step, end_step, (vx, vy, wz), ramp)
+      # ramp=True means linearly interpolate from 0 to target value over the range
+      command_sequence = [
+        (0, 125, (0.6, 0.0, 0.0), True),      # Forward ramp 0→0.6 over 125 steps
+        (125, 250, (0.0, 0.4, 0.0), False),   # Lateral for 125 steps
+        (250, 375, (0.0, 0.0, 0.4), False),   # Turning for 125 steps
+        (375, 500, (0.5, 0.0, 0.3), False),   # Mixed for 125 steps
+        (500, float('inf'), (0.6, 0.0, 0.0), False),  # Forward after 500 steps
+      ]
       
-      def compute_constant_forward(dt: float):
-        # Only update metrics, set constant forward command
+      # Track step counter ourselves since episode_length_buf resets
+      step_counter = [0]
+      
+      def compute_time_based(dt: float):
+        # Only update metrics
         twist_term._update_metrics()
         twist_term.time_left[:] = 1e6  # Prevent resampling
-        # Set constant forward velocity
-        twist_term.vel_command_b[:, 0] = forward_vel  # Forward
-        twist_term.vel_command_b[:, 1] = 0.0  # No lateral
-        twist_term.vel_command_b[:, 2] = 0.0  # No turning
+        
+        # Use our own step counter (increments each time compute is called)
+        current_step = step_counter[0]
+        step_counter[0] += 1
+        
+        # Find the command for current timestep
+        vx, vy, wz = 0.0, 0.0, 0.0
+        for start_step, end_step, (cmd_vx, cmd_vy, cmd_wz), ramp in command_sequence:
+          if start_step <= current_step < end_step:
+            if ramp:
+              # Linear ramp from 0 to target over the step range
+              num_steps = end_step - start_step
+              step_in_range = current_step - start_step
+              ramp_factor = step_in_range / num_steps  # 0.0 to 1.0
+              vx = cmd_vx * ramp_factor
+              vy = cmd_vy * ramp_factor
+              wz = cmd_wz * ramp_factor
+            else:
+              # Constant command
+              vx, vy, wz = cmd_vx, cmd_vy, cmd_wz
+            break
+        
+        # Set velocity command for all environments
+        twist_term.vel_command_b[:, 0] = vx  # Forward
+        twist_term.vel_command_b[:, 1] = vy  # Lateral
+        twist_term.vel_command_b[:, 2] = wz  # Turning
+        
+        # Debug print (only every 25 steps to avoid spam)
+        if current_step % 25 == 0:
+          print(f"Step {current_step}: Command vx={vx:.2f}, vy={vy:.2f}, wz={wz:.2f}")
 
       def update_no_op():
-        # Don't modify commands
+        # Don't modify commands - this prevents heading/standing logic from overriding
+        # The original _update_command would modify ang_vel_z for heading and zero commands for standing
         pass
+      
+      # Reset step counter when environment resets
+      original_reset = twist_term.reset
+      def reset_with_counter(env_ids):
+        result = original_reset(env_ids)
+        step_counter[0] = 0  # Reset our counter on environment reset
+        return result
+      twist_term.reset = reset_with_counter
 
-      twist_term.compute = compute_constant_forward
+      twist_term.compute = compute_time_based
       twist_term._update_command = update_no_op
       
-      # Set initial command
-      twist_term.vel_command_b[:, 0] = forward_vel
-      twist_term.vel_command_b[:, 1] = 0.0
-      twist_term.vel_command_b[:, 2] = 0.0
+      # Set initial command before first step
+      # Reset environment to initialize step counter
+      env.reset()
+      # Now set initial command based on step 0 (ramp starts at 0)
+      initial_vx, initial_vy, initial_wz = 0.0, 0.0, 0.0
+      for start_step, end_step, (cmd_vx, cmd_vy, cmd_wz), ramp in command_sequence:
+        if start_step <= 0 < end_step:
+          if ramp:
+            # At step 0, ramp is 0.0
+            initial_vx, initial_vy, initial_wz = 0.0, 0.0, 0.0
+          else:
+            initial_vx, initial_vy, initial_wz = cmd_vx, cmd_vy, cmd_wz
+          break
+      twist_term.vel_command_b[:, 0] = initial_vx
+      twist_term.vel_command_b[:, 1] = initial_vy
+      twist_term.vel_command_b[:, 2] = initial_wz
+      print(f"Initial command set: vx={initial_vx:.2f}, vy={initial_vy:.2f}, wz={initial_wz:.2f}")
       
-      print(f"✅ Configured for constant forward motion ({forward_vel} m/s)")
+      print("✅ Configured for time-based commands:")
+      for start, end, (vx, vy, wz), ramp in command_sequence:
+        if end == float('inf'):
+          if ramp:
+            print(f"   Steps {start}+: vx={vx:.1f} (ramp 0→{vx:.1f}), vy={vy:.1f}, wz={wz:.1f}")
+          else:
+            print(f"   Steps {start}+: vx={vx:.1f}, vy={vy:.1f}, wz={wz:.1f}")
+        else:
+          if ramp:
+            print(f"   Steps {start}-{end}: vx={vx:.1f} (ramp 0→{vx:.1f}), vy={vy:.1f}, wz={wz:.1f}")
+          else:
+            print(f"   Steps {start}-{end}: vx={vx:.1f}, vy={vy:.1f}, wz={wz:.1f}")
   
   # Run viewer
   viewer = ViserPlayViewer(env, policy)
