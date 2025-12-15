@@ -1,0 +1,81 @@
+--- git status ---
+On branch erics
+Your branch is ahead of 'origin/erics' by 2 commits.
+  (use "git push" to publish your local commits)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   src/mjlab/tasks/tracking/rl/runner.py
+	modified:   src/mjlab/tasks/velocity/mdp/rewards.py
+	modified:   src/mjlab/tasks/velocity/rl/runner.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	logs/
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/src/mjlab/tasks/tracking/rl/runner.py b/src/mjlab/tasks/tracking/rl/runner.py
+index b173b4a..81df6fa 100644
+--- a/src/mjlab/tasks/tracking/rl/runner.py
++++ b/src/mjlab/tasks/tracking/rl/runner.py
+@@ -28,7 +28,8 @@ class MotionTrackingOnPolicyRunner(OnPolicyRunner):
+   def save(self, path: str, infos=None):
+     """Save the model and training information."""
+     super().save(path, infos)
+-    if self.logger_type in ["wandb"]:
++    # if self.logger_type in ["wandb"]:
++    if wandb.run is not None:
+       policy_path = path.split("model")[0]
+       filename = policy_path.split("/")[-2] + ".onnx"
+       if self.alg.policy.actor_obs_normalization:
+diff --git a/src/mjlab/tasks/velocity/mdp/rewards.py b/src/mjlab/tasks/velocity/mdp/rewards.py
+index 792d20c..071684a 100644
+--- a/src/mjlab/tasks/velocity/mdp/rewards.py
++++ b/src/mjlab/tasks/velocity/mdp/rewards.py
+@@ -20,6 +20,28 @@ if TYPE_CHECKING:
+ _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
+ 
+ 
++def joint_limit_penalty(
++  env: ManagerBasedRlEnv,
++  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++) -> torch.Tensor:
++  """Penalize joint positions that are approaching their limits."""
++  asset: Entity = env.scene[asset_cfg.name]
++  joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
++ 
++  limits = asset.data.soft_joint_pos_limits[:, asset_cfg.joint_ids, :]
++  out_of_limits = (joint_pos - limits[..., 1]).clip(min=0.0) + (limits[..., 0] - joint_pos).clip(min=0.0)
++ 
++  return torch.sum(out_of_limits, dim=1)
++
++def action_rate_penalty(
++  env: ManagerBasedRlEnv,
++  command_name: str | None = None,
++) -> torch.Tensor:
++  """Penalize large changes in actions (smoothness)."""
++  diff = env.action_manager.action - env.action_manager.prev_action
++  return torch.sum(torch.square(diff), dim=1)
++
++
+ def track_linear_velocity(
+   env: ManagerBasedRlEnv,
+   std: float,
+diff --git a/src/mjlab/tasks/velocity/rl/runner.py b/src/mjlab/tasks/velocity/rl/runner.py
+index 17810c5..1726d32 100644
+--- a/src/mjlab/tasks/velocity/rl/runner.py
++++ b/src/mjlab/tasks/velocity/rl/runner.py
+@@ -16,7 +16,8 @@ class VelocityOnPolicyRunner(OnPolicyRunner):
+   def save(self, path: str, infos=None):
+     """Save the model and training information."""
+     super().save(path, infos)
+-    if self.logger_type in ["wandb"]:
++    # if self.logger_type in ["wandb"]:
++    if wandb.run is not None:
+       policy_path = path.split("model")[0]
+       filename = os.path.basename(os.path.dirname(policy_path)) + ".onnx"
+       if self.alg.policy.actor_obs_normalization:
