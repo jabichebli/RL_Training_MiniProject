@@ -78,51 +78,108 @@ def generate_reference(
   # -------------------------
   # Body pose trajectory
   # -------------------------
-  # Simple 4-phase backflip reference:
-  # 0) prep:    0  -> -20 deg
-  # 1) preload: -20 -> +15 deg
-  # 2) flight:  +15 -> 330 deg (with ballistic z arc)
-  # 3) land:    330 -> 360 deg
+  # Simple 5-phase backflip reference:
+  # 0) hold:    0.0s-0.5s   hold still (0 deg, z at ground)
+  # 1) prep:    0.5s-0.6s   0  -> -20 deg
+  # 2) preload: 0.6s-0.8s   -20 -> +15 deg
+  # 3) flight:  0.8s-1.25s  +15 -> 330 deg (with ballistic z arc)
+  # 4) land:    1.25s+      330 -> 360 deg
+
   # Ground height
-  z_ground = 0.5
+  z_ground = 0.29
   # Takeoff velocity (for parabolic arc)
   v_z0 = 3.0  # m/s upward
   g = 9.81  # gravity
 
-  # Phase 0: Preparation (0 ≤ t < 0.1)
-  if t < 0.1:
-    # Preparation: θ from 0° to -20°, z constant
-    alpha = t / 0.1  # 0 to 1
+  fr_hip = 0.05
+  fr_thigh = 1.0
+  fr_calf = -1.9
+  rr_hip = 0.05
+  rr_thigh = 1.0
+  rr_calf = -1.9
+
+
+  z_1 = 0.2
+  fr_thigh_1 = 1.5
+  fr_calf_1 = -2.6
+  rr_thigh_1 = 1.0
+  rr_calf_1 = -1.9
+
+  z_2 = 0.43
+  fr_thigh_2 = 0.4
+  fr_calf_2 = -0.7
+  rr_thigh_2 = 0.7
+  rr_calf_2 = -1.2
+
+
+  # Phase 0: Hold (0.0 ≤ t < 0.5)
+  if t < 0.5:
+    theta_deg = 0.0
+    x = 0.0
+    z = z_ground
+
+
+  # Phase 1: Preparation (0.5 ≤ t < 0.6)
+  elif t < 0.6:
+    alpha = (t - 0.5) / 0.1  # 0 to 1
+    s = alpha * alpha * (3.0 - 2.0 * alpha)  # smoothstep for joints
     theta_deg = -20.0 * alpha  # 0° to -20°
     x = 0.0
-    z = z_ground
-  # Phase 1: Pre-takeoff (0.1 ≤ t < 0.3)
-  elif t < 0.3:
+    z = z_ground + (z_1 - z_ground) * s
+
+    fr_thigh = fr_thigh + (fr_thigh_1 - fr_thigh) * s
+    fr_calf = fr_calf + (fr_calf_1 - fr_calf) * s
+    rr_thigh = rr_thigh + (rr_thigh_1 - rr_thigh) * s
+    rr_calf = rr_calf + (rr_calf_1 - rr_calf) * s
+
+  elif t < 0.8:
     # Pre-takeoff: θ from -20° to +15°, z constant
-    alpha = (t - 0.1) / 0.2  # 0 to 1
+    alpha = (t - 0.6) / 0.2  # 0 to 1
+    s = alpha * alpha * (3.0 - 2.0 * alpha)  # smoothstep for joints
     theta_deg = -20.0 + alpha * 35.0  # -20° to +15°
     x = 0.0
-    z = z_ground
-  # Phase 2: Flight (0.3 ≤ t ≤ 0.75)
-  elif t <= 0.75:
+    z = z_1 + (z_2 - z_1) * s
+
+    fr_thigh = fr_thigh_1 + (fr_thigh_2 - fr_thigh_1) * s
+    fr_calf = fr_calf_1 + (fr_calf_2 - fr_calf_1) * s
+    rr_thigh = rr_thigh_1 + (rr_thigh_2 - rr_thigh_1) * s
+    rr_calf = rr_calf_1 + (rr_calf_2 - rr_calf_1) * s
+
+  # Phase 3: Flight (0.8 ≤ t ≤ 1.25)
+  elif t <= 1.25:
     # Pitch: +15° to 330° (linear)
-    flight_time = t - 0.3  # Time since takeoff
+    flight_time = t - 0.8  # Time since takeoff
     theta_deg = 15.0 + (flight_time / 0.45) * 315.0  # +15° to 330°
     # x: linear advance
-    x = 0.5 * flight_time  # Forward motion
+    x = -0.5 * flight_time  # Forward motion
     # z: parabolic arc (ballistic)
-    z = z_ground + v_z0 * flight_time - 0.5 * g * flight_time * flight_time
-  # Phase 3: Landing (t > 0.75)
+    z = z_2 + v_z0 * flight_time - 0.5 * g * flight_time * flight_time
+
+
+    fr_thigh = fr_thigh_2
+    fr_calf = fr_calf_2
+    rr_thigh = rr_thigh_2
+    rr_calf = rr_calf_2
+  # Phase 4: Landing (t > 1.25)
   else:
     # Pitch: 330° → 360° (complete rotation)
-    landing_time = min((t - 0.75) / 0.3, 1.0)  # 0.3s landing phase
+    landing_time = min((t - 1.25) / 0.3, 1.0)  # 0.3s landing phase
+    # Faster joint convergence: blend joints over first half of landing window.
+    land_blend = min(landing_time / 0.5, 1.0)
+    s_land = land_blend * land_blend * (3.0 - 2.0 * land_blend)  # smoothstep
     theta_deg = 330.0 + landing_time * 30.0  # 330° to 360°
     # x: continue forward from flight end
     flight_time = 0.45  # Flight duration
-    x = 0.5 * flight_time  # Forward distance from flight
+    x = -0.5 * flight_time  # Forward distance from flight
     # z: return to ground
-    z_apex = z_ground + v_z0 * flight_time - 0.5 * g * flight_time * flight_time
+    z_apex = z_2 + v_z0 * flight_time - 0.5 * g * flight_time * flight_time
     z = z_ground + (z_apex - z_ground) * (1.0 - landing_time)
+
+    # Fade joints back toward initial pose
+    fr_thigh = fr_thigh_2 + (fr_thigh - fr_thigh_2) * s_land
+    fr_calf = fr_calf_2 + (fr_calf - fr_calf_2) * s_land
+    rr_thigh = rr_thigh_2 + (rr_thigh - rr_thigh_2) * s_land
+    rr_calf = rr_calf_2 + (rr_calf - rr_calf_2) * s_land
 
   # Convert pitch angle to quaternion (rotation around Y-axis)
   theta_rad = np.deg2rad(theta_deg)
@@ -135,19 +192,14 @@ def generate_reference(
 
   pos = np.array([x, 0.0, z])
 
-  # -------------------------
-  # Half-joint pose (optional)
-  # -------------------------
-  # Edit this dict to specify joints for ONE side (e.g. FR_*/RR_*). Everything
-  # else stays at the neutral pose and will be mirrored to the other side.
+  # Assemble dict for ONE side; mirroring happens later.
   half_joints: dict[str, float] = {
-    # Example:
-    # "FR_hip_joint": 0.05,
-    # "FR_thigh_joint": 1.0,
-    # "FR_calf_joint": -1.9,
-    # "RR_hip_joint": 0.05,
-    # "RR_thigh_joint": 1.0,
-    # "RR_calf_joint": -1.9,
+    "FR_hip_joint": fr_hip,
+    "FR_thigh_joint": fr_thigh,
+    "FR_calf_joint": fr_calf,
+    "RR_hip_joint": rr_hip,
+    "RR_thigh_joint": rr_thigh,
+    "RR_calf_joint": rr_calf,
   }
 
   return pos, quat, half_joints
@@ -402,6 +454,7 @@ def generate_backflip_motion(
 
         # Small delay to control playback speed (optional)
         time.sleep(timestep)
+        # time.sleep(0.01)
 
 
 
