@@ -1,1 +1,37 @@
-*.pyc
+# ----------------------------------------------------------------------
+# Compiled Python files and temporary build/test artifacts
+# ----------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary files created by popular editors/tools
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*~
+
+# Virtual environments
+venv/
+env/
+.venv/
+.direnv/
+
+# Package management
+*.egg-info/
+build/
+dist/
+pip-wheel-metadata/
+
+# Jupyter Notebook Checkpoints
+.ipynb_checkpoints
+
+# ----------------------------------------------------------------------
+# Log and Data Files (specific to your project)
+# ----------------------------------------------------------------------
+# Example: Ignore the untracked directory you showed
+src/mjlab/tasks/tracking/config/go2/
+# Ignore any generic log files
+*.log
+*.tmp
