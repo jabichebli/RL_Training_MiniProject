@@ -118,9 +118,8 @@ def motion_joint_position_error_exp(
 ) -> torch.Tensor:
   """Exponential reward for joint position tracking."""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
-  robot = env.scene["robot"]
   error = torch.sum(
-    torch.square(command.joint_pos - robot.data.qpos[:, 7:]),
+    torch.square(command.joint_pos - command.robot_joint_pos),
     dim=-1,
   )
   return torch.exp(-error / std**2)
