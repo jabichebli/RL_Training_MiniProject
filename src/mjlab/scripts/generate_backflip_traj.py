@@ -60,32 +60,100 @@ def find_robot_xml(robot: str) -> Path:
   )
 
 
-def generate_backflip_joint_traj(
-  model: mujoco.MjModel, T: int, timestep: float
-) -> np.ndarray:
-  """Generate a backflip joint trajectory using keyframe animation.
+def generate_body_pose_traj(
+  t: float, duration: float
+) -> tuple[np.ndarray, np.ndarray]:
+  """Generate quadruped backflip trajectory using body pitch and COM position.
 
-  Creates a simple backflip motion with these phases:
-  1. Crouch/preparation (0-20%)
-  2. Jump/extend (20-30%)
-  3. Tuck and rotate (30-70%)
-  4. Extend for landing (70-85%)
-  5. Landing/cushion (85-100%)
+  Phases:
+  - Pre-takeoff (t < 0.2): θ: 0° → -20° → +15°, z constant
+  - Flight (0.2 ≤ t ≤ 0.65): θ: +15° → 330°, z parabolic, x linear
+  - Landing (t > 0.65): θ: 330° → 0°, z → ground
+
+  Args:
+    t: Current time in seconds (0 to duration).
+    duration: Total duration of trajectory.
+
+  Returns:
+    Tuple of (position, quaternion) where:
+    - position: np.ndarray of shape (3,) - [x, y, z] in world frame
+    - quaternion: np.ndarray of shape (4,) - [w, x, y, z] from pitch angle
+  """
+  # Ground height
+  z_ground = 0.5
+  # Takeoff velocity (for parabolic arc)
+  v_z0 = 3.0  # m/s upward
+  g = 9.81  # gravity
+
+  # Phase 0: Preparation (0 ≤ t < 0.1)
+  if t < 0.1:
+    # Preparation: θ from 0° to -20°, z constant
+    alpha = t / 0.1  # 0 to 1
+    theta_deg = -20.0 * alpha  # 0° to -20°
+    x = 0.0
+    z = z_ground
+  # Phase 1: Pre-takeoff (0.1 ≤ t < 0.3)
+  elif t < 0.3:
+    # Pre-takeoff: θ from -20° to +15°, z constant
+    alpha = (t - 0.1) / 0.2  # 0 to 1
+    theta_deg = -20.0 + alpha * 35.0  # -20° to +15°
+    x = 0.0
+    z = z_ground
+  # Phase 2: Flight (0.3 ≤ t ≤ 0.75)
+  elif t <= 0.75:
+    # Pitch: +15° to 330° (linear)
+    flight_time = t - 0.3  # Time since takeoff
+    theta_deg = 15.0 + (flight_time / 0.45) * 315.0  # +15° to 330°
+    # x: linear advance
+    x = 0.5 * flight_time  # Forward motion
+    # z: parabolic arc (ballistic)
+    z = z_ground + v_z0 * flight_time - 0.5 * g * flight_time * flight_time
+  # Phase 3: Landing (t > 0.75)
+  else:
+    # Pitch: 330° → 360° (complete rotation)
+    landing_time = min((t - 0.75) / 0.3, 1.0)  # 0.3s landing phase
+    theta_deg = 330.0 + landing_time * 30.0  # 330° to 360°
+    # x: continue forward from flight end
+    flight_time = 0.45  # Flight duration
+    x = 0.5 * flight_time  # Forward distance from flight
+    # z: return to ground
+    z_apex = z_ground + v_z0 * flight_time - 0.5 * g * flight_time * flight_time
+    z = z_ground + (z_apex - z_ground) * (1.0 - landing_time)
+
+  # Convert pitch angle to quaternion (rotation around Y-axis)
+  theta_rad = np.deg2rad(theta_deg)
+  quat = np.array([
+    np.cos(theta_rad / 2.0),  # w
+    0.0,                       # x
+    -np.sin(theta_rad / 2.0),   # y (pitch axis)
+    0.0                        # z
+  ])
+
+  pos = np.array([x, 0.0, z])
+  return pos, quat
+
+
+def generate_backflip_joint_traj(
+  model: mujoco.MjModel, T: int, timestep: float, duration: float
+) -> np.ndarray:
+  """Generate joint trajectory with neutral/default pose.
+
+  Sets all joints to a neutral/standing pose. The body pose trajectory
+  should be defined in `generate_body_pose_traj()` function.
 
   Args:
     model: MuJoCo model to get joint information from.
     T: Number of time steps.
     timestep: Simulation timestep in seconds.
+    duration: Total duration of trajectory in seconds.
 
   Returns:
-    Joint positions array of shape (T, n_joints).
+    Joint positions array of shape (T, n_joints) with neutral pose.
   """
   n_joints = model.nv - 6  # Exclude floating base
   q = np.zeros((T, n_joints))
 
   # Map joints to their positions in qpos array (excluding floating base)
-  # qpos has: [pos(3), quat(4), joint1, joint2, ...]
-  # So joint positions start at index 7 in qpos, but at index 0 in our q array
   import re
 
   # Build mapping: joint name -> index in q array (not qpos)
@@ -94,7 +162,6 @@ def generate_backflip_joint_traj(
   for i in range(model.njnt):
     joint = model.joint(i)
     if joint.name != "floating_base_joint":
-      # This joint is in our q array
       joint_name_to_qidx[joint.name] = qidx
       qidx += 1
 
@@ -107,62 +174,23 @@ def generate_backflip_joint_traj(
         indices.append(idx)
     return indices
 
-  # Find joint indices for each leg type
+  # Set neutral/default pose based on joint patterns
+  # For Go1: thigh=0.9, calf=-1.8, hip varies
+  # For other robots, use 0.0 as default
   hip_indices = find_joint_indices(r".*_hip_joint")
   thigh_indices = find_joint_indices(r".*_thigh_joint")
   calf_indices = find_joint_indices(r".*_calf_joint")
 
-  # Keyframe poses (as fractions of total time)
-  keyframes = {
-    # (time_fraction, hip_angle, thigh_angle, calf_angle)
-    0.0: (0.0, 0.9, -1.8),  # Standing pose
-    0.2: (0.0, 0.5, -1.2),  # Crouch
-    0.3: (0.0, 1.2, -2.0),  # Jump/extend
-    0.5: (0.0, 2.5, -0.5),  # Tuck (mid-flip)
-    0.7: (0.0, 2.5, -0.5),  # Still tucked
-    0.85: (0.0, 1.0, -1.8),  # Extend for landing
-    1.0: (0.0, 0.9, -1.8),  # Landing/standing
-  }
-
-  # Create time array
-  times = np.linspace(0, 1, T)
-
-  # Interpolate each joint type
-  keyframe_times = np.array(list(keyframes.keys()))
-  keyframe_hips = np.array([keyframes[t][0] for t in keyframe_times])
-  keyframe_thighs = np.array([keyframes[t][1] for t in keyframe_times])
-  keyframe_calves = np.array([keyframes[t][2] for t in keyframe_times])
-
-  # Use interpolation for smooth motion
-  try:
-    from scipy.interpolate import interp1d
-
-    hip_interp = interp1d(
-      keyframe_times, keyframe_hips, kind="cubic", fill_value="extrapolate"
-    )
-    thigh_interp = interp1d(
-      keyframe_times, keyframe_thighs, kind="cubic", fill_value="extrapolate"
-    )
-    calf_interp = interp1d(
-      keyframe_times, keyframe_calves, kind="cubic", fill_value="extrapolate"
-    )
-    # scipy interp1d (cubic interpolation)
-    hip_traj = hip_interp(times)
-    thigh_traj = thigh_interp(times)
-    calf_traj = calf_interp(times)
-  except ImportError:
-    # Fallback to numpy interpolation if scipy not available
-    hip_traj = np.interp(times, keyframe_times, keyframe_hips)
-    thigh_traj = np.interp(times, keyframe_times, keyframe_thighs)
-    calf_traj = np.interp(times, keyframe_times, keyframe_calves)
-
-  # Assign to joint arrays
+  # Set neutral pose (standing pose for quadrupeds)
+  # All joints set to neutral - you can customize these values
   for i in hip_indices:
-    q[:, i] = hip_traj
+    q[:, i] = 0.0  # Neutral hip angle
   for i in thigh_indices:
-    q[:, i] = thigh_traj
+    q[:, i] = 0.9  # Slightly bent thigh (standing pose)
   for i in calf_indices:
-    q[:, i] = calf_traj
+    q[:, i] = -1.8  # Extended calf (standing pose)
+
+  # All other joints default to 0.0 (already set by np.zeros)
 
   return q
 
@@ -222,25 +250,30 @@ def generate_backflip_motion(
 
   print(f"[INFO] Robot has {n_joints} joints, {n_bodies} bodies")
 
-  # Generate joint trajectory
-  print("[INFO] Generating backflip joint trajectory...")
-  joint_pos = generate_backflip_joint_traj(model, T, timestep)
+  # Generate joint trajectory (neutral pose)
+  print("[INFO] Generating joint trajectory with neutral pose...")
+  joint_pos = generate_backflip_joint_traj(model, T, timestep, duration)
 
   # Initialize arrays for body states
+  # Velocities set to zero - only body positions/orientations matter
   joint_vel = np.zeros_like(joint_pos)
   body_pos_w = np.zeros((T, n_bodies, 3))
   body_quat_w = np.zeros((T, n_bodies, 4))
-  body_lin_vel_w = np.zeros((T, n_bodies, 3))
-  body_ang_vel_w = np.zeros((T, n_bodies, 3))
+  body_lin_vel_w = np.zeros((T, n_bodies, 3))  # Set to zero
+  body_ang_vel_w = np.zeros((T, n_bodies, 3))  # Set to zero
 
   # Compute forward kinematics for each time step (generate trajectory once)
-  print("[INFO] Computing forward kinematics and generating trajectory...")
+  print("[INFO] Computing forward kinematics with user-defined body pose...")
   for t in range(T):
-    # Set base pose; start at origin, neutral orientation
-    data.qpos[:3] = 0.0
-    data.qpos[3:7] = np.array([1.0, 0.0, 0.0, 0.0])
+    # Get desired body pose from user-defined function
+    current_time = t * timestep
+    root_pos, root_quat = generate_body_pose_traj(current_time, duration)
 
-    # Set joint positions
+    # Set root body pose (floating base: 3 pos + 4 quat)
+    data.qpos[:3] = root_pos
+    data.qpos[3:7] = root_quat  # (w, x, y, z)
+
+    # Set joint positions to neutral
     data.qpos[7:] = joint_pos[t]
     data.qvel[:] = 0.0
 
@@ -255,10 +288,9 @@ def generate_backflip_motion(
       body_lin_vel_w[t, idx] = data.cvel[b, :3]
       body_ang_vel_w[t, idx] = data.cvel[b, 3:]
 
-  # Compute joint velocities from finite differences
-  print("[INFO] Computing joint velocities...")
-  joint_vel[1:] = (joint_pos[1:] - joint_pos[:-1]) / timestep
-  joint_vel[0] = joint_vel[1]
+  # Velocities are set to zero - only body positions/orientations are used
+  # The RL agent will optimize joint angles to match the desired body poses
+  print("[INFO] Velocities set to zero (only body poses matter)")
 
   # Save to npz file (trajectory generated once)
   print(f"[INFO] Saving motion file to: {output_path}")
@@ -300,9 +332,9 @@ def generate_backflip_motion(
         if not viewer.is_running():
           break
 
-        # Set base pose
-        data.qpos[:3] = 0.0
-        data.qpos[3:7] = np.array([1.0, 0.0, 0.0, 0.0])
+        # Set base pose from trajectory (root body is index 0)
+        data.qpos[:3] = body_pos_w[t, 0]
+        data.qpos[3:7] = body_quat_w[t, 0]
 
         # Set joint positions from pre-computed trajectory
         data.qpos[7:] = joint_pos[t]
