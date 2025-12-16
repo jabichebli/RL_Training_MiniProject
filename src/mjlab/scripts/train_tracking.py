@@ -73,13 +73,17 @@ def run_train_tracking(task_id: str, cfg: TrainTrackingConfig) -> None:
   print(f"[INFO] Using local motion file: {motion_file_path}")
   motion_cmd.motion_file = str(motion_file_path.resolve())
 
-  # Optional: keep only pose rewards (body position + orientation).
+  # Optional: filter rewards based on pose_only_rewards flag.
   if cfg.pose_only_rewards:
+    # Keep only body position + orientation (no joint tracking, no velocities).
     if cfg.env.rewards is None:
       raise ValueError("env.rewards is None; cannot apply pose_only_rewards.")
     keep = {"motion_body_pos", "motion_body_ori"}
     cfg.env.rewards = {k: v for k, v in cfg.env.rewards.items() if k in keep}
     print(f"[INFO] pose_only_rewards enabled. Keeping rewards: {sorted(cfg.env.rewards.keys())}")
+  else:
+    # Default: include all tracking rewards (body pose + joint positions + velocities).
+    print(f"[INFO] Using all tracking rewards including joint positions.")
 
   # Enable NaN guard if requested.
   if cfg.enable_nan_guard:

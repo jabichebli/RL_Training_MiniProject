@@ -113,6 +113,19 @@ def motion_global_body_angular_velocity_error_exp(
   return torch.exp(-error.mean(-1) / std**2)
 
 
+def motion_joint_position_error_exp(
+  env: ManagerBasedRlEnv, command_name: str, std: float
+) -> torch.Tensor:
+  """Exponential reward for joint position tracking."""
+  command = cast(MotionCommand, env.command_manager.get_term(command_name))
+  robot = env.scene["robot"]
+  error = torch.sum(
+    torch.square(command.joint_pos - robot.data.qpos[:, 7:]),
+    dim=-1,
+  )
+  return torch.exp(-error / std**2)
+
+
 def self_collision_cost(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
   """Cost that returns the number of self-collisions detected by a sensor."""
   sensor: ContactSensor = env.scene[sensor_name]
