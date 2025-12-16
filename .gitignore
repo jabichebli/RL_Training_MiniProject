@@ -31,7 +31,6 @@ pip-wheel-metadata/
 # Log and Data Files (specific to your project)
 # ----------------------------------------------------------------------
 # Example: Ignore the untracked directory you showed
-src/mjlab/tasks/tracking/config/go2/
 # Ignore any generic log files
 *.log
 *.tmp
