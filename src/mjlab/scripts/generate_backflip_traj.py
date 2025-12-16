@@ -60,25 +60,29 @@ def find_robot_xml(robot: str) -> Path:
   )
 
 
-def generate_body_pose_traj(
+def generate_reference(
   t: float, duration: float
-) -> tuple[np.ndarray, np.ndarray]:
-  """Generate quadruped backflip trajectory using body pitch and COM position.
-
-  Phases:
-  - Pre-takeoff (t < 0.2): θ: 0° → -20° → +15°, z constant
-  - Flight (0.2 ≤ t ≤ 0.65): θ: +15° → 330°, z parabolic, x linear
-  - Landing (t > 0.65): θ: 330° → 0°, z → ground
-
-  Args:
-    t: Current time in seconds (0 to duration).
-    duration: Total duration of trajectory.
+) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
+  """User hook: define BOTH body pose and half-joint angles for the reference.
 
   Returns:
-    Tuple of (position, quaternion) where:
-    - position: np.ndarray of shape (3,) - [x, y, z] in world frame
-    - quaternion: np.ndarray of shape (4,) - [w, x, y, z] from pitch angle
+  - body position (x,y,z) in world frame
+  - body orientation quaternion (w,x,y,z)
+  - joint angles for ONE symmetric half of the robot (dict joint_name->rad).
+    The generator will mirror:
+      FR_* <-> FL_*
+      RR_* <-> RL_*
+    and will flip sign for mirrored `*_hip_joint` by default.
   """
+
+  # -------------------------
+  # Body pose trajectory
+  # -------------------------
+  # Simple 4-phase backflip reference:
+  # 0) prep:    0  -> -20 deg
+  # 1) preload: -20 -> +15 deg
+  # 2) flight:  +15 -> 330 deg (with ballistic z arc)
+  # 3) land:    330 -> 360 deg
   # Ground height
   z_ground = 0.5
   # Takeoff velocity (for parabolic arc)
@@ -130,7 +134,23 @@ def generate_body_pose_traj(
   ])
 
   pos = np.array([x, 0.0, z])
-  return pos, quat
+
+  # -------------------------
+  # Half-joint pose (optional)
+  # -------------------------
+  # Edit this dict to specify joints for ONE side (e.g. FR_*/RR_*). Everything
+  # else stays at the neutral pose and will be mirrored to the other side.
+  half_joints: dict[str, float] = {
+    # Example:
+    # "FR_hip_joint": 0.05,
+    # "FR_thigh_joint": 1.0,
+    # "FR_calf_joint": -1.9,
+    # "RR_hip_joint": 0.05,
+    # "RR_thigh_joint": 1.0,
+    # "RR_calf_joint": -1.9,
+  }
+
+  return pos, quat, half_joints
 
 
 def generate_backflip_joint_traj(
@@ -190,7 +210,27 @@ def generate_backflip_joint_traj(
   for i in calf_indices:
     q[:, i] = -1.8  # Extended calf (standing pose)
 
-  # All other joints default to 0.0 (already set by np.zeros)
+  # Optionally override joints from user-defined half-pose (mirrored to other side).
+  mirror_prefix = {"FR_": "FL_", "FL_": "FR_", "RR_": "RL_", "RL_": "RR_"}
+
+  def _mirror_name(name: str) -> str | None:
+    for src, dst in mirror_prefix.items():
+      if name.startswith(src):
+        return dst + name[len(src) :]
+    return None
+
+  def _mirror_value(name: str, value: float) -> float:
+    # Flip sign for hip abduction joints on the mirrored side.
+    return -value if name.endswith("_hip_joint") else value
+
+  for ti in range(T):
+    _, _, half = generate_reference(ti * timestep, duration)
+    for jname, jval in half.items():
+      if jname in joint_name_to_qidx:
+        q[ti, joint_name_to_qidx[jname]] = float(jval)
+      mname = _mirror_name(jname)
+      if mname is not None and mname in joint_name_to_qidx:
+        q[ti, joint_name_to_qidx[mname]] = float(_mirror_value(jname, jval))
 
   return q
 
@@ -214,22 +254,34 @@ def generate_backflip_motion(
   print(f"[INFO] Loading robot model from: {robot_xml}")
   spec = mujoco.MjSpec.from_file(str(robot_xml))
 
-#   # Add ground plane to worldbody
-#   if show_viewer:
-#     print("[INFO] Adding ground plane to model...")
-#     # Add a simple ground plane geom
-#     spec.worldbody.add_geom(
-#       name="ground",
-#       type=mujoco.mjtGeom.mjGEOM_PLANE,
-#       size=(10.0, 10.0, 0.01),  # Large plane
-#       rgba=(0.2, 0.3, 0.4, 1.0),  # Gray-blue color
-#     )
-#     # Add some lighting
-#     spec.worldbody.add_light(
-#       pos=(0, 0, 3),
-#       dir=(0, 0, -1),
-#       diffuse=(0.7, 0.7, 0.7),
-#     )
+  # Checkerboard floor + simple directional light.
+  from mjlab.utils import spec_config as spec_cfg
+
+  spec_cfg.TextureCfg(
+    name="groundplane",
+    type="2d",
+    builtin="checker",
+    mark="edge",
+    rgb1=(0.2, 0.3, 0.4),
+    rgb2=(0.1, 0.2, 0.3),
+    markrgb=(0.8, 0.8, 0.8),
+    width=300,
+    height=300,
+  ).edit_spec(spec)
+  spec_cfg.MaterialCfg(
+    name="groundplane",
+    texuniform=True,
+    texrepeat=(4, 4),
+    reflectance=0.2,
+    texture="groundplane",
+  ).edit_spec(spec)
+  spec.worldbody.add_body(name="terrain").add_geom(
+    name="ground",
+    type=mujoco.mjtGeom.mjGEOM_PLANE,
+    size=(0, 0, 0.01),
+    material="groundplane",
+  )
+  spec_cfg.LightCfg(pos=(0, 0, 1.5), type="directional").edit_spec(spec)
 
   # Compile the model
   model = spec.compile()
@@ -267,7 +319,7 @@ def generate_backflip_motion(
   for t in range(T):
     # Get desired body pose from user-defined function
     current_time = t * timestep
-    root_pos, root_quat = generate_body_pose_traj(current_time, duration)
+    root_pos, root_quat, _ = generate_reference(current_time, duration)
 
     # Set root body pose (floating base: 3 pos + 4 quat)
     data.qpos[:3] = root_pos
