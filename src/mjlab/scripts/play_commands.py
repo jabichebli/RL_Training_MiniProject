@@ -103,8 +103,9 @@ def main() -> None:
                 ):
                     if start_step <= current_step < end_step:
                         if i == 0:
-                            progress = float(current_step - start_step) /
-                            (end_step - start_step)
+                            progress = float(current_step - start_step) / (
+                                end_step - start_step
+                            )
                             vx = cmd_vx * progress
                             vy = cmd_vy
                             wz = cmd_wz
@@ -121,6 +122,7 @@ def main() -> None:
                 pass
 
             original_reset = twist_term.reset
+
             def reset_with_counter(env_ids):
                 result = original_reset(env_ids)
                 step_counter[0] = 0
@@ -134,7 +136,7 @@ def main() -> None:
             twist_term.vel_command_b[:, 0] = 0.0
             twist_term.vel_command_b[:, 1] = 0.0
             twist_term.vel_command_b[:, 2] = 0.0
-    
+
     print(f"\nRunning in visualization mode (viewer='{args.viewer}')...")
     if args.viewer == "native":
         viewer = NativeMujocoViewer(env, policy)

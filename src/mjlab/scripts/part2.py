@@ -196,7 +196,7 @@ def main() -> None:
     axs[1].set_title("Mean Foot Slip Velocity")
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plot2_filename = "part2.png"
+    plot2_filename = "part2_slip_vel_error.png"
     plt.savefig(plot2_filename)
     print(f"Performance metrics plot saved to {plot2_filename}")
 
