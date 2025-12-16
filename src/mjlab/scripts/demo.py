@@ -33,7 +33,7 @@ def main() -> None:
     # Locate checkpoint
     # ---------------------------------------------------------------------
     possible_paths = [
-        Path("/content/mjlab/logs/rsl_rl/go2_tracking/2025-12-16_00-35-34/model_500.pt"),
+        Path("/content/mjlab/logs/rsl_rl/go2_tracking/2025-12-16_21-05-46/model_500.pt"),
     ]
 
     checkpoint_path = None
