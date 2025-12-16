@@ -85,6 +85,13 @@ def main() -> None:
         env_cfg.scene.num_envs = args.num_envs
 
     # ---------------------------------------------------------------------
+    # Demo override: disable strict tracking terminations that cause frequent resets
+    # ---------------------------------------------------------------------
+    if env_cfg.terminations is not None:
+        for k in ("anchor_pos", "anchor_ori", "ee_body_pos"):
+            env_cfg.terminations.pop(k, None)
+
+    # ---------------------------------------------------------------------
     # Ensure motion file is provided
     # ---------------------------------------------------------------------
     if (
