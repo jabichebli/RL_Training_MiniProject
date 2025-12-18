@@ -38,7 +38,7 @@ class SimulateMotionConfig:
     """PD controller derivative gain (Nm/(rad/s)). Realistic range: Hip~1, Knee~4."""
 
     loop: bool = True
-    """Whether to loop the motion continuously."""
+    """Whether to loop the motion continuously. If save_output=True and loop=False, exits after one pass."""
 
     timestep: float = 0.002
     """Physics timestep in seconds."""
@@ -51,6 +51,12 @@ class SimulateMotionConfig:
 
     use_controller: bool = True
     """Use custom PD controller. If False, use very high gains for kinematic replay with physics."""
+
+    save_output: bool = False
+    """Save the physics-simulated trajectory to a new motion file. Recommended: use --no-loop with this."""
+
+    output_file: str = "backflip_motion_physics.npz"
+    """Output filename for the physics-simulated motion file. Will contain actual simulated joint/body states."""
 
 
 def load_motion_data(motion_file: Path) -> dict[str, np.ndarray]:
@@ -189,6 +195,8 @@ def simulate_motion(cfg: SimulateMotionConfig):
     else:
         print(f"[INFO] Mode: Kinematic Replay with Physics (very high gains: kp=10000, kd=100)")
     print(f"[INFO] Gravity: {'OFF (midair test)' if cfg.no_gravity else 'ON'}")
+    if cfg.save_output:
+        print(f"[INFO] Will save physics-simulated trajectory to: {cfg.output_file}")
     print("[INFO] Controls:")
     print("  - SPACE: Pause/Resume")
     print("  - R: Reset to frame 0")
@@ -196,6 +204,19 @@ def simulate_motion(cfg: SimulateMotionConfig):
 
     frame_idx = 0
     paused = False
+
+    # Arrays for recording simulated trajectory
+    recording_complete = False
+    n_bodies = model.nbody
+    recorded_joint_pos = np.zeros((n_frames, n_joints)) if cfg.save_output else None
+    recorded_joint_vel = np.zeros((n_frames, n_joints)) if cfg.save_output else None
+    recorded_body_pos_w = np.zeros((n_frames, n_bodies, 3)) if cfg.save_output else None
+    recorded_body_quat_w = np.zeros((n_frames, n_bodies, 4)) if cfg.save_output else None
+    recorded_body_lin_vel_w = np.zeros((n_frames, n_bodies, 3)) if cfg.save_output else None
+    recorded_body_ang_vel_w = np.zeros((n_frames, n_bodies, 3)) if cfg.save_output else None
+    
+    if cfg.save_output:
+        print(f"[INFO] Recording simulation data for output...")
 
     def key_callback(keycode):
         nonlocal paused, frame_idx
@@ -311,9 +332,35 @@ def simulate_motion(cfg: SimulateMotionConfig):
                         print(f"  Reference joints: {np.array2string(ref_pos, precision=3, suppress_small=True)}")
                         print(f"  Actual joints:    {np.array2string(curr_pos, precision=3, suppress_small=True)}")
 
+                # Record simulation data if saving output
+                if cfg.save_output and not recording_complete and recorded_joint_pos is not None:
+                    recorded_joint_pos[frame_idx] = data.qpos[7:]
+                    recorded_joint_vel[frame_idx] = data.qvel[6:]  # type: ignore
+                    
+                    # Record all body states
+                    for body_idx in range(n_bodies):
+                        recorded_body_pos_w[frame_idx, body_idx] = data.xpos[body_idx]  # type: ignore
+                        recorded_body_quat_w[frame_idx, body_idx] = data.xquat[body_idx]  # type: ignore
+                        recorded_body_lin_vel_w[frame_idx, body_idx] = data.cvel[body_idx, :3]  # type: ignore
+                        recorded_body_ang_vel_w[frame_idx, body_idx] = data.cvel[body_idx, 3:]  # type: ignore
+
                 # Advance frame
                 frame_idx += 1
                 if frame_idx >= n_frames:
+                    if cfg.save_output and not recording_complete and recorded_joint_pos is not None:
+                        recording_complete = True
+                        print(f"[INFO] Recording complete! Saving to {cfg.output_file}")
+                        np.savez(
+                            cfg.output_file,
+                            joint_pos=recorded_joint_pos,
+                            joint_vel=recorded_joint_vel,
+                            body_pos_w=recorded_body_pos_w,
+                            body_quat_w=recorded_body_quat_w,
+                            body_lin_vel_w=recorded_body_lin_vel_w,
+                            body_ang_vel_w=recorded_body_ang_vel_w,
+                        )
+                        print(f"[INFO] Physics-simulated motion saved to: {cfg.output_file}")
+                    
                     if cfg.loop:
                         frame_idx = 0
                     else:
