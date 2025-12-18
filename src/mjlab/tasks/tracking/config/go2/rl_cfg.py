@@ -30,7 +30,7 @@ UNITREE_GO2_TRACKING_PPO_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     max_grad_norm=1.0,
   ),
   experiment_name="go2_tracking",
-  save_interval=500,
+  save_interval=250,
   num_steps_per_env=24,
   max_iterations=30_000,
 )

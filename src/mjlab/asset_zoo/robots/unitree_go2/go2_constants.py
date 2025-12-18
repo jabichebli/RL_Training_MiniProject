@@ -44,7 +44,7 @@ ROTOR_INERTIA = 0.000111842
 
 # Gear ratios for hip and knee joints (similar to Go1).
 HIP_GEAR_RATIO = 6
-KNEE_GEAR_RATIO = HIP_GEAR_RATIO * 1.5
+KNEE_GEAR_RATIO = 12
 
 HIP_ACTUATOR = ElectricActuator(
   reflected_inertia=reflected_inertia(ROTOR_INERTIA, HIP_GEAR_RATIO),
@@ -54,8 +54,8 @@ HIP_ACTUATOR = ElectricActuator(
 
 KNEE_ACTUATOR = ElectricActuator(
   reflected_inertia=reflected_inertia(ROTOR_INERTIA, KNEE_GEAR_RATIO),
-  velocity_limit=20.06,
-  effort_limit=35.55,
+  velocity_limit=15.70,
+  effort_limit=45.43,
 )
 
 # Natural frequency and damping ratio for PD-like actuator behavior.

@@ -77,99 +77,67 @@ def generate_reference(
 
   # -------------------------
   # Body pose trajectory
-  # ============================================================================
-  # TRAJECTORY PARAMETERS - Modify these to tune the backflip
-  # ============================================================================
+  # -------------------------
+  # Simple 5-phase backflip reference:
+  # 0) hold:    0.0s-0.5s   hold still (0 deg, z at ground)
+  # 1) prep:    0.5s-0.6s   0  -> -20 deg
+  # 2) preload: 0.6s-0.8s   -20 -> +15 deg
+  # 3) flight:  0.8s-1.25s  +15 -> 330 deg (with ballistic z arc)
+  # 4) land:    1.25s+      330 -> 360 deg
 
-  # --- Flight dynamics ---
-  v_z0 = 3.0             # Vertical takeoff velocity (m/s)
-  g = 9.81               # Gravity (m/s²)
-  
-  # --- Phase 0: Initial stance (neutral) ---
-  x_0 = 0.0              # Phase 0: Forward position
-  z_0 = 0.29             # Phase 0: Ground level / landing height
-  theta_hold = 0.0       # Phase 0: Initial hold
-  t_hold_end = 0.5       # Phase 0: Hold duration
+  # Ground height
+  z_ground = 0.29
+  # Takeoff velocity (for parabolic arc)
+  v_z0 = 3.0  # m/s upward
+  g = 9.81  # gravity
+
   fr_hip = 0.05
   fr_thigh = 1.0
   fr_calf = -1.9
   rr_hip = 0.05
   rr_thigh = 1.0
   rr_calf = -1.9
-  
 
-  # --- Phase 1: Preparation joint angles ---
-  x_1 = -0.05              # Phase 1: Forward position
-  z_1 = 0.29             # Phase 1: Vertical position
-  theta_prep = 10.0      # Phase 1: Preparation (initial crouch)
-  t_prep_end = 0.7       # Phase 1: End of preparation
-  fr_thigh_1 = 0.8
-  fr_calf_1 = -1.6
-  rr_thigh_1 = 0.3
-  rr_calf_1 = -1.8
-  
 
-  # --- Phase 2: Loading joint angles ---
-  x_2 = -0.2              # Phase 2: Forward position
-  z_2 = 0.43             # Phase 2: Vertical position
-  theta_loading = 65.0   # Phase 2: Loading (deep crouch)
-  t_loading_end = 0.8    # Phase 2: End of loading
-  fr_thigh_2 = 0.8
-  fr_calf_2 = -1.6
-  rr_thigh_2 = 1
+  z_1 = 0.2
+  fr_thigh_1 = 1.5
+  fr_calf_1 = -2.6
+  rr_thigh_1 = 1.0
+  rr_calf_1 = -1.9
+
+  z_2 = 0.43
+  fr_thigh_2 = 0.4
+  fr_calf_2 = -0.7
+  rr_thigh_2 = 0.7
   rr_calf_2 = -1.2
-  
-
-  # --- Phase 3: Takeoff joint angles ---
-  x_3 = -0.4              # Phase 3: Forward position
-  z_3 = 0.55             # Phase 3: Vertical position
-  theta_takeoff = 110.0   # Phase 3: Takeoff (push off)
-  t_takeoff_end = 0.9    # Phase 3: End of takeoff
-  fr_thigh_3 = 0.8
-  fr_calf_3 = -1.6
-  rr_thigh_3 = 1.8
-  rr_calf_3 = -0.5
-
-  # --- Phase 4: Flight parameters ---
-  t_flight_end = 1.25    # Phase 4: End of flight
-  theta_flight_end = 330.0  # Phase 4: End of flight (nearly upright after rotation)
-  
-  # --- Phase 5: Landing parameters ---
-  z_ground = 0.29        # Landing ground height (same as z_0)
-  t_landing_duration = 0.3  # Phase 5: Landing duration
-  theta_final = 360.0    # Phase 5: Landing (complete rotation)
-  
-  # ============================================================================
 
 
-  # Phase 0: Hold
-  if t < t_hold_end:
-    theta_deg = theta_hold
-    x = x_0
-    z = z_0
+  # Phase 0: Hold (0.0 ≤ t < 0.5)
+  if t < 0.5:
+    theta_deg = 0.0
+    x = 0.0
+    z = z_ground
 
 
-  # Phase 1: Preparation
-  elif t < t_prep_end:
-    phase_duration = t_prep_end - t_hold_end
-    alpha = (t - t_hold_end) / phase_duration
+  # Phase 1: Preparation (0.5 ≤ t < 0.6)
+  elif t < 0.6:
+    alpha = (t - 0.5) / 0.1  # 0 to 1
     s = alpha * alpha * (3.0 - 2.0 * alpha)  # smoothstep for joints
-    theta_deg = theta_hold + alpha * (theta_prep - theta_hold)  # Blend from hold to prep
-    x = x_0 + (x_1 - x_0) * s
-    z = z_0 + (z_1 - z_0) * s
+    theta_deg = -20.0 * alpha  # 0° to -20°
+    x = 0.0
+    z = z_ground + (z_1 - z_ground) * s
 
     fr_thigh = fr_thigh + (fr_thigh_1 - fr_thigh) * s
     fr_calf = fr_calf + (fr_calf_1 - fr_calf) * s
     rr_thigh = rr_thigh + (rr_thigh_1 - rr_thigh) * s
     rr_calf = rr_calf + (rr_calf_1 - rr_calf) * s
 
-  # Phase 2: Loading (deep crouch)
-  elif t < t_loading_end:
-    phase_duration = t_loading_end - t_prep_end
-    alpha = (t - t_prep_end) / phase_duration
+  elif t < 0.8:
+    # Pre-takeoff: θ from -20° to +15°, z constant
+    alpha = (t - 0.6) / 0.2  # 0 to 1
     s = alpha * alpha * (3.0 - 2.0 * alpha)  # smoothstep for joints
-    theta_deg = theta_prep + alpha * (theta_loading - theta_prep)  # Blend from prep to loading
-    x = x_1 + (x_2 - x_1) * s
+    theta_deg = -20.0 + alpha * 35.0  # -20° to +15°
+    x = 0.0
     z = z_1 + (z_2 - z_1) * s
 
     fr_thigh = fr_thigh_1 + (fr_thigh_2 - fr_thigh_1) * s
@@ -177,58 +145,41 @@ def generate_reference(
     rr_thigh = rr_thigh_1 + (rr_thigh_2 - rr_thigh_1) * s
     rr_calf = rr_calf_1 + (rr_calf_2 - rr_calf_1) * s
 
-  # Phase 3: Takeoff (push off)
-  elif t < t_takeoff_end:
-    phase_duration = t_takeoff_end - t_loading_end
-    alpha = (t - t_loading_end) / phase_duration
-    s = alpha * alpha * (3.0 - 2.0 * alpha)  # smoothstep for joints
-    theta_deg = theta_loading + alpha * (theta_takeoff - theta_loading)  # Blend from loading to takeoff
-    x = x_2 + (x_3 - x_2) * s
-    z = z_2 + (z_3 - z_2) * s
+  # Phase 3: Flight (0.8 ≤ t ≤ 1.25)
+  elif t <= 1.25:
+    # Pitch: +15° to 330° (linear)
+    flight_time = t - 0.8  # Time since takeoff
+    theta_deg = 15.0 + (flight_time / 0.45) * 315.0  # +15° to 330°
+    # x: linear advance
+    x = -0.5 * flight_time  # Forward motion
+    # z: parabolic arc (ballistic)
+    z = z_2 + v_z0 * flight_time - 0.5 * g * flight_time * flight_time
 
-    fr_thigh = fr_thigh_2 + (fr_thigh_3 - fr_thigh_2) * s
-    fr_calf = fr_calf_2 + (fr_calf_3 - fr_calf_2) * s
-    rr_thigh = rr_thigh_2 + (rr_thigh_3 - rr_thigh_2) * s
-    rr_calf = rr_calf_2 + (rr_calf_3 - rr_calf_2) * s
 
-  # Hold position after loading
+    fr_thigh = fr_thigh_2
+    fr_calf = fr_calf_2
+    rr_thigh = rr_thigh_2
+    rr_calf = rr_calf_2
+  # Phase 4: Landing (t > 1.25)
   else:
-    theta_deg = theta_takeoff
-    x = x_3
-    z = z_3
+    # Pitch: 330° → 360° (complete rotation)
+    landing_time = min((t - 1.25) / 0.3, 1.0)  # 0.3s landing phase
+    # Faster joint convergence: blend joints over first half of landing window.
+    land_blend = min(landing_time / 0.5, 1.0)
+    s_land = land_blend * land_blend * (3.0 - 2.0 * land_blend)  # smoothstep
+    theta_deg = 330.0 + landing_time * 30.0  # 330° to 360°
+    # x: continue forward from flight end
+    flight_time = 0.45  # Flight duration
+    x = -0.5 * flight_time  # Forward distance from flight
+    # z: return to ground
+    z_apex = z_2 + v_z0 * flight_time - 0.5 * g * flight_time * flight_time
+    z = z_ground + (z_apex - z_ground) * (1.0 - landing_time)
 
-    fr_thigh = fr_thigh_3
-    fr_calf = fr_calf_3
-    rr_thigh = rr_thigh_3
-    rr_calf = rr_calf_3
-
-  # TODO: Add Phase 4 (Flight) and Phase 5 (Landing) here when ready
-  # Phase 4: Flight
-  # elif t <= t_flight_end:
-  #   flight_time = t - t_takeoff_end
-  #   flight_duration = t_flight_end - t_takeoff_end
-  #   theta_deg = theta_takeoff + (flight_time / flight_duration) * (theta_flight_end - theta_takeoff)
-  #   x = -0.5 * flight_time
-  #   z = z_3 + v_z0 * flight_time - 0.5 * g * flight_time * flight_time
-  #   fr_thigh = fr_thigh_3
-  #   fr_calf = fr_calf_3
-  #   rr_thigh = rr_thigh_3
-  #   rr_calf = rr_calf_3
-  #
-  # Phase 5: Landing
-  # else:
-  #   landing_time = min((t - t_flight_end) / t_landing_duration, 1.0)
-  #   land_blend = min(landing_time / 0.5, 1.0)
-  #   s_land = land_blend * land_blend * (3.0 - 2.0 * land_blend)
-  #   theta_deg = theta_flight_end + landing_time * (theta_final - theta_flight_end)
-  #   flight_duration = t_flight_end - t_takeoff_end
-  #   x = -0.5 * flight_duration
-  #   z_apex = z_3 + v_z0 * flight_duration - 0.5 * g * flight_duration * flight_duration
-  #   z = z_ground + (z_apex - z_ground) * (1.0 - landing_time)
-  #   fr_thigh = fr_thigh_3 + (fr_thigh - fr_thigh_3) * s_land
-  #   fr_calf = fr_calf_3 + (fr_calf - fr_calf_3) * s_land
-  #   rr_thigh = rr_thigh_3 + (rr_thigh - rr_thigh_3) * s_land
-  #   rr_calf = rr_calf_3 + (rr_calf - rr_calf_3) * s_land
+    # Fade joints back toward initial pose
+    fr_thigh = fr_thigh_2 + (fr_thigh - fr_thigh_2) * s_land
+    fr_calf = fr_calf_2 + (fr_calf - fr_calf_2) * s_land
+    rr_thigh = rr_thigh_2 + (rr_thigh - rr_thigh_2) * s_land
+    rr_calf = rr_calf_2 + (rr_calf - rr_calf_2) * s_land
 
   # Convert pitch angle to quaternion (rotation around Y-axis)
   theta_rad = np.deg2rad(theta_deg)

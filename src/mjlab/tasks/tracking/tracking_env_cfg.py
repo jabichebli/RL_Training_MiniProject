@@ -280,11 +280,6 @@ def create_tracking_env_cfg(
       weight=1.0,
       params={"command_name": "motion", "std": 3.14},
     ),
-    "motion_joint_pos": RewardTermCfg(
-      func=mdp.motion_joint_position_error_exp,
-      weight=5.0,
-      params={"command_name": "motion", "std": 0.5},
-    ),
     "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-1e-1),
     "joint_limit": RewardTermCfg(
       func=mdp.joint_pos_limits,
