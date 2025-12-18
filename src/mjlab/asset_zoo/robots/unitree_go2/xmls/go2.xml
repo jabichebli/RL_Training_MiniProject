@@ -1,5 +1,7 @@
 <mujoco model="go2">
   <compiler angle="radian" meshdir="assets" autolimits="true"/>
+  
+  <size njmax="500" nconmax="200"/>
 
   <default>
     <default class="go2">

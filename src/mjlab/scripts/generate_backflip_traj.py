@@ -113,7 +113,7 @@ def generate_reference(
   x_1 = -0.05              # Phase 1: Forward position
   z_1 = 0.29             # Phase 1: Vertical position
   theta_prep = 10.0      # Phase 1: Preparation (initial crouch)
-  t_1_transition = t_0_pause_end + 0.2  # Phase 1: Transition end (before pause)
+  t_1_transition = t_0_pause_end + 0.3  # Phase 1: Transition end (before pause)
   t_1_pause_end = t_1_transition + pause_duration  # Phase 1: End (including pause)
   fr_thigh_1 = 0.7
   fr_calf_1 = -1.4
@@ -125,7 +125,7 @@ def generate_reference(
   x_2 = -0.2              # Phase 2: Forward position
   z_2 = 0.43             # Phase 2: Vertical position
   theta_loading = 65.0   # Phase 2: Loading (deep crouch)
-  t_2_transition = t_1_pause_end + 0.1  # Phase 2: Transition end (before pause)
+  t_2_transition = t_1_pause_end + 0.4  # Phase 2: Transition end (before pause)
   t_2_pause_end = t_2_transition + pause_duration  # Phase 2: End (including pause)
   fr_thigh_2 = 1.3
   fr_calf_2 = -1.2
@@ -137,7 +137,7 @@ def generate_reference(
   x_squat = -0.3          # Phase 3: Forward position
   z_squat = 0.48          # Phase 3: Vertical position
   theta_squat = 95.0      # Phase 3: Squat (deepest position)
-  t_3_transition = t_2_pause_end + 0.1  # Phase 3: Transition end (before pause)
+  t_3_transition = t_2_pause_end + 0.05  # Phase 3: Transition end (before pause)
   t_3_pause_end = t_3_transition + pause_duration  # Phase 3: End (including pause)
   fr_thigh_squat = 1.3
   fr_calf_squat = -1.2
@@ -149,7 +149,7 @@ def generate_reference(
   x_4 = -0.4              # Phase 4: Forward position
   z_4 = 0.55             # Phase 4: Vertical position
   theta_takeoff = 110.0   # Phase 4: Takeoff (push off)
-  t_4_transition = t_3_pause_end + 0.1  # Phase 4: Transition end (before pause)
+  t_4_transition = t_3_pause_end + 0.05  # Phase 4: Transition end (before pause)
   t_4_pause_end = t_4_transition + pause_duration  # Phase 4: End (including pause)
   fr_thigh_4 = 0.6
   fr_calf_4 = -1.6
