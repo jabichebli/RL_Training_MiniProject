@@ -90,16 +90,6 @@ def run_train_tracking(task_id: str, cfg: TrainTrackingConfig) -> None:
     cfg.env.sim.nan_guard.enabled = True
     print(f"[INFO] NaN guard enabled, output dir: {cfg.env.sim.nan_guard.output_dir}")
 
-  # Remove strict termination conditions that cause frequent resets during training.
-  if cfg.env.terminations is not None:
-    removed = []
-    for k in ("anchor_pos", "anchor_ori", "ee_body_pos"):
-      if k in cfg.env.terminations:
-        cfg.env.terminations.pop(k)
-        removed.append(k)
-    if removed:
-      print(f"[INFO] Removed termination conditions: {removed}")
-
   # Specify directory for logging experiments.
   log_root_path = Path("logs") / "rsl_rl" / cfg.agent.experiment_name
   log_root_path.resolve()
