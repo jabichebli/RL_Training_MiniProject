@@ -26,6 +26,7 @@ class GenerateBackflipTrajConfig:
     duration: Duration of the backflip trajectory in seconds. Defaults to 3.0
     timestep: Simulation timestep in seconds. Defaults to 0.005 (200 Hz)
     show_viewer: If True, opens the MuJoCo viewer and syncs every step.
+    include_pauses: If True, includes pauses between phases in both the motion file and viewer.
   """
 
   robot: str
@@ -33,6 +34,7 @@ class GenerateBackflipTrajConfig:
   duration: float = 3.0
   timestep: float = 0.005
   show_viewer: bool = False
+  include_pauses: bool = False
 
 
 def find_robot_xml(robot: str) -> Path:
@@ -61,9 +63,14 @@ def find_robot_xml(robot: str) -> Path:
 
 
 def generate_reference(
-  t: float, duration: float
+  t: float, duration: float, use_pauses: bool = True
 ) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
   """User hook: define BOTH body pose and half-joint angles for the reference.
+
+  Args:
+    t: Current time in seconds
+    duration: Total duration of the trajectory
+    use_pauses: If True, includes pauses between phases. If False, continuous transitions.
 
   Returns:
   - body position (x,y,z) in world frame
@@ -85,11 +92,15 @@ def generate_reference(
   v_z0 = 3.0             # Vertical takeoff velocity (m/s)
   g = 9.81               # Gravity (m/s²)
   
+  # --- Pause duration between phases (seconds) ---
+  pause_duration = 0.3 if use_pauses else 0.0  # How long to hold at the end of each phase
+  
   # --- Phase 0: Initial stance (neutral) ---
   x_0 = 0.0              # Phase 0: Forward position
   z_0 = 0.29             # Phase 0: Ground level / landing height
   theta_hold = 0.0       # Phase 0: Initial hold
-  t_hold_end = 0.5       # Phase 0: Hold duration
+  t_0_transition = 0.5   # Phase 0: Transition end (before pause)
+  t_0_pause_end = t_0_transition + pause_duration  # Phase 0: End (including pause)
   fr_hip = 0.05
   fr_thigh = 1.0
   fr_calf = -1.9
@@ -102,9 +113,10 @@ def generate_reference(
   x_1 = -0.05              # Phase 1: Forward position
   z_1 = 0.29             # Phase 1: Vertical position
   theta_prep = 10.0      # Phase 1: Preparation (initial crouch)
-  t_prep_end = 0.7       # Phase 1: End of preparation
-  fr_thigh_1 = 0.8
-  fr_calf_1 = -1.6
+  t_1_transition = t_0_pause_end + 0.2  # Phase 1: Transition end (before pause)
+  t_1_pause_end = t_1_transition + pause_duration  # Phase 1: End (including pause)
+  fr_thigh_1 = 0.7
+  fr_calf_1 = -1.4
   rr_thigh_1 = 0.3
   rr_calf_1 = -1.8
   
@@ -113,48 +125,67 @@ def generate_reference(
   x_2 = -0.2              # Phase 2: Forward position
   z_2 = 0.43             # Phase 2: Vertical position
   theta_loading = 65.0   # Phase 2: Loading (deep crouch)
-  t_loading_end = 0.8    # Phase 2: End of loading
-  fr_thigh_2 = 0.8
-  fr_calf_2 = -1.6
+  t_2_transition = t_1_pause_end + 0.1  # Phase 2: Transition end (before pause)
+  t_2_pause_end = t_2_transition + pause_duration  # Phase 2: End (including pause)
+  fr_thigh_2 = 1.3
+  fr_calf_2 = -1.2
   rr_thigh_2 = 1
   rr_calf_2 = -1.2
   
 
-  # --- Phase 3: Takeoff joint angles ---
-  x_3 = -0.4              # Phase 3: Forward position
-  z_3 = 0.55             # Phase 3: Vertical position
-  theta_takeoff = 110.0   # Phase 3: Takeoff (push off)
-  t_takeoff_end = 0.9    # Phase 3: End of takeoff
-  fr_thigh_3 = 0.8
-  fr_calf_3 = -1.6
-  rr_thigh_3 = 1.8
-  rr_calf_3 = -0.5
-
-  # --- Phase 4: Flight parameters ---
-  t_flight_end = 1.25    # Phase 4: End of flight
-  theta_flight_end = 330.0  # Phase 4: End of flight (nearly upright after rotation)
+  # --- Phase 3: Squat joint angles ---
+  x_squat = -0.3          # Phase 3: Forward position
+  z_squat = 0.48          # Phase 3: Vertical position
+  theta_squat = 85.0      # Phase 3: Squat (deepest position)
+  t_3_transition = t_2_pause_end + 0.05  # Phase 3: Transition end (before pause)
+  t_3_pause_end = t_3_transition + pause_duration  # Phase 3: End (including pause)
+  fr_thigh_squat = 1.3
+  fr_calf_squat = -1.2
+  rr_thigh_squat = 1.4
+  rr_calf_squat = -0.8
   
-  # --- Phase 5: Landing parameters ---
+
+  # --- Phase 4: Takeoff joint angles ---
+  x_4 = -0.4              # Phase 4: Forward position
+  z_4 = 0.55             # Phase 4: Vertical position
+  theta_takeoff = 110.0   # Phase 4: Takeoff (push off)
+  t_4_transition = t_3_pause_end + 0.05  # Phase 4: Transition end (before pause)
+  t_4_pause_end = t_4_transition + pause_duration  # Phase 4: End (including pause)
+  fr_thigh_4 = 0.6
+  fr_calf_4 = -1.6
+  rr_thigh_4 = 1.8
+  rr_calf_4 = -0.5
+
+  # --- Phase 5: Flight parameters ---
+  t_flight_end = 1.25    # Phase 5: End of flight
+  theta_flight_end = 330.0  # Phase 5: End of flight (nearly upright after rotation)
+  
+  # --- Phase 6: Landing parameters ---
   z_ground = 0.29        # Landing ground height (same as z_0)
-  t_landing_duration = 0.3  # Phase 5: Landing duration
-  theta_final = 360.0    # Phase 5: Landing (complete rotation)
+  t_landing_duration = 0.3  # Phase 6: Landing duration
+  theta_final = 360.0    # Phase 6: Landing (complete rotation)
   
   # ============================================================================
 
 
-  # Phase 0: Hold
-  if t < t_hold_end:
+  # Phase 0: Hold (transition)
+  if t < t_0_transition:
     theta_deg = theta_hold
     x = x_0
     z = z_0
 
+  # Phase 0: Pause
+  elif t < t_0_pause_end:
+    theta_deg = theta_hold
+    x = x_0
+    z = z_0
 
-  # Phase 1: Preparation
-  elif t < t_prep_end:
-    phase_duration = t_prep_end - t_hold_end
-    alpha = (t - t_hold_end) / phase_duration
+  # Phase 1: Preparation (transition)
+  elif t < t_1_transition:
+    phase_duration = t_1_transition - t_0_pause_end
+    alpha = (t - t_0_pause_end) / phase_duration
     s = alpha * alpha * (3.0 - 2.0 * alpha)  # smoothstep for joints
-    theta_deg = theta_hold + alpha * (theta_prep - theta_hold)  # Blend from hold to prep
+    theta_deg = theta_hold + alpha * (theta_prep - theta_hold)
     x = x_0 + (x_1 - x_0) * s
     z = z_0 + (z_1 - z_0) * s
 
@@ -163,12 +194,22 @@ def generate_reference(
     rr_thigh = rr_thigh + (rr_thigh_1 - rr_thigh) * s
     rr_calf = rr_calf + (rr_calf_1 - rr_calf) * s
 
-  # Phase 2: Loading (deep crouch)
-  elif t < t_loading_end:
-    phase_duration = t_loading_end - t_prep_end
-    alpha = (t - t_prep_end) / phase_duration
+  # Phase 1: Pause
+  elif t < t_1_pause_end:
+    theta_deg = theta_prep
+    x = x_1
+    z = z_1
+    fr_thigh = fr_thigh_1
+    fr_calf = fr_calf_1
+    rr_thigh = rr_thigh_1
+    rr_calf = rr_calf_1
+
+  # Phase 2: Loading (transition)
+  elif t < t_2_transition:
+    phase_duration = t_2_transition - t_1_pause_end
+    alpha = (t - t_1_pause_end) / phase_duration
     s = alpha * alpha * (3.0 - 2.0 * alpha)  # smoothstep for joints
-    theta_deg = theta_prep + alpha * (theta_loading - theta_prep)  # Blend from prep to loading
+    theta_deg = theta_prep + alpha * (theta_loading - theta_prep)
     x = x_1 + (x_2 - x_1) * s
     z = z_1 + (z_2 - z_1) * s
 
@@ -177,45 +218,79 @@ def generate_reference(
     rr_thigh = rr_thigh_1 + (rr_thigh_2 - rr_thigh_1) * s
     rr_calf = rr_calf_1 + (rr_calf_2 - rr_calf_1) * s
 
-  # Phase 3: Takeoff (push off)
-  elif t < t_takeoff_end:
-    phase_duration = t_takeoff_end - t_loading_end
-    alpha = (t - t_loading_end) / phase_duration
+  # Phase 2: Pause
+  elif t < t_2_pause_end:
+    theta_deg = theta_loading
+    x = x_2
+    z = z_2
+    fr_thigh = fr_thigh_2
+    fr_calf = fr_calf_2
+    rr_thigh = rr_thigh_2
+    rr_calf = rr_calf_2
+
+  # Phase 3: Squat (transition)
+  elif t < t_3_transition:
+    phase_duration = t_3_transition - t_2_pause_end
+    alpha = (t - t_2_pause_end) / phase_duration
     s = alpha * alpha * (3.0 - 2.0 * alpha)  # smoothstep for joints
-    theta_deg = theta_loading + alpha * (theta_takeoff - theta_loading)  # Blend from loading to takeoff
-    x = x_2 + (x_3 - x_2) * s
-    z = z_2 + (z_3 - z_2) * s
+    theta_deg = theta_loading + alpha * (theta_squat - theta_loading)
+    x = x_2 + (x_squat - x_2) * s
+    z = z_2 + (z_squat - z_2) * s
 
-    fr_thigh = fr_thigh_2 + (fr_thigh_3 - fr_thigh_2) * s
-    fr_calf = fr_calf_2 + (fr_calf_3 - fr_calf_2) * s
-    rr_thigh = rr_thigh_2 + (rr_thigh_3 - rr_thigh_2) * s
-    rr_calf = rr_calf_2 + (rr_calf_3 - rr_calf_2) * s
+    fr_thigh = fr_thigh_2 + (fr_thigh_squat - fr_thigh_2) * s
+    fr_calf = fr_calf_2 + (fr_calf_squat - fr_calf_2) * s
+    rr_thigh = rr_thigh_2 + (rr_thigh_squat - rr_thigh_2) * s
+    rr_calf = rr_calf_2 + (rr_calf_squat - rr_calf_2) * s
 
-  # Hold position after loading
+  # Phase 3: Pause
+  elif t < t_3_pause_end:
+    theta_deg = theta_squat
+    x = x_squat
+    z = z_squat
+    fr_thigh = fr_thigh_squat
+    fr_calf = fr_calf_squat
+    rr_thigh = rr_thigh_squat
+    rr_calf = rr_calf_squat
+
+  # Phase 4: Takeoff (transition)
+  elif t < t_4_transition:
+    phase_duration = t_4_transition - t_3_pause_end
+    alpha = (t - t_3_pause_end) / phase_duration
+    s = alpha * alpha * (3.0 - 2.0 * alpha)  # smoothstep for joints
+    theta_deg = theta_squat + alpha * (theta_takeoff - theta_squat)
+    x = x_squat + (x_4 - x_squat) * s
+    z = z_squat + (z_4 - z_squat) * s
+
+    fr_thigh = fr_thigh_squat + (fr_thigh_4 - fr_thigh_squat) * s
+    fr_calf = fr_calf_squat + (fr_calf_4 - fr_calf_squat) * s
+    rr_thigh = rr_thigh_squat + (rr_thigh_4 - rr_thigh_squat) * s
+    rr_calf = rr_calf_squat + (rr_calf_4 - rr_calf_squat) * s
+
+  # Phase 4: Pause and hold position after takeoff
   else:
     theta_deg = theta_takeoff
-    x = x_3
-    z = z_3
+    x = x_4
+    z = z_4
 
-    fr_thigh = fr_thigh_3
-    fr_calf = fr_calf_3
-    rr_thigh = rr_thigh_3
-    rr_calf = rr_calf_3
+    fr_thigh = fr_thigh_4
+    fr_calf = fr_calf_4
+    rr_thigh = rr_thigh_4
+    rr_calf = rr_calf_4
 
-  # TODO: Add Phase 4 (Flight) and Phase 5 (Landing) here when ready
-  # Phase 4: Flight
+  # TODO: Add Phase 5 (Flight) and Phase 6 (Landing) here when ready
+  # Phase 5: Flight
   # elif t <= t_flight_end:
   #   flight_time = t - t_takeoff_end
   #   flight_duration = t_flight_end - t_takeoff_end
   #   theta_deg = theta_takeoff + (flight_time / flight_duration) * (theta_flight_end - theta_takeoff)
   #   x = -0.5 * flight_time
-  #   z = z_3 + v_z0 * flight_time - 0.5 * g * flight_time * flight_time
-  #   fr_thigh = fr_thigh_3
-  #   fr_calf = fr_calf_3
-  #   rr_thigh = rr_thigh_3
-  #   rr_calf = rr_calf_3
+  #   z = z_4 + v_z0 * flight_time - 0.5 * g * flight_time * flight_time
+  #   fr_thigh = fr_thigh_4
+  #   fr_calf = fr_calf_4
+  #   rr_thigh = rr_thigh_4
+  #   rr_calf = rr_calf_4
   #
-  # Phase 5: Landing
+  # Phase 6: Landing
   # else:
   #   landing_time = min((t - t_flight_end) / t_landing_duration, 1.0)
   #   land_blend = min(landing_time / 0.5, 1.0)
@@ -223,12 +298,12 @@ def generate_reference(
   #   theta_deg = theta_flight_end + landing_time * (theta_final - theta_flight_end)
   #   flight_duration = t_flight_end - t_takeoff_end
   #   x = -0.5 * flight_duration
-  #   z_apex = z_3 + v_z0 * flight_duration - 0.5 * g * flight_duration * flight_duration
+  #   z_apex = z_4 + v_z0 * flight_duration - 0.5 * g * flight_duration * flight_duration
   #   z = z_ground + (z_apex - z_ground) * (1.0 - landing_time)
-  #   fr_thigh = fr_thigh_3 + (fr_thigh - fr_thigh_3) * s_land
-  #   fr_calf = fr_calf_3 + (fr_calf - fr_calf_3) * s_land
-  #   rr_thigh = rr_thigh_3 + (rr_thigh - rr_thigh_3) * s_land
-  #   rr_calf = rr_calf_3 + (rr_calf - rr_calf_3) * s_land
+  #   fr_thigh = fr_thigh_4 + (fr_thigh - fr_thigh_4) * s_land
+  #   fr_calf = fr_calf_4 + (fr_calf - fr_calf_4) * s_land
+  #   rr_thigh = rr_thigh_4 + (rr_thigh - rr_thigh_4) * s_land
+  #   rr_calf = rr_calf_4 + (rr_calf - rr_calf_4) * s_land
 
   # Convert pitch angle to quaternion (rotation around Y-axis)
   theta_rad = np.deg2rad(theta_deg)
@@ -255,7 +330,7 @@ def generate_reference(
 
 
 def generate_backflip_joint_traj(
-  model: mujoco.MjModel, T: int, timestep: float, duration: float
+  model: mujoco.MjModel, T: int, timestep: float, duration: float, include_pauses: bool
 ) -> np.ndarray:
   """Generate joint trajectory with neutral/default pose.
 
@@ -267,6 +342,7 @@ def generate_backflip_joint_traj(
     T: Number of time steps.
     timestep: Simulation timestep in seconds.
     duration: Total duration of trajectory in seconds.
+    include_pauses: If True, includes pauses between phases.
 
   Returns:
     Joint positions array of shape (T, n_joints) with neutral pose.
@@ -325,7 +401,7 @@ def generate_backflip_joint_traj(
     return -value if name.endswith("_hip_joint") else value
 
   for ti in range(T):
-    _, _, half = generate_reference(ti * timestep, duration)
+    _, _, half = generate_reference(ti * timestep, duration, use_pauses=include_pauses)
     for jname, jval in half.items():
       if jname in joint_name_to_qidx:
         q[ti, joint_name_to_qidx[jname]] = float(jval)
@@ -342,6 +418,7 @@ def generate_backflip_motion(
   duration: float,
   timestep: float,
   show_viewer: bool,
+  include_pauses: bool,
 ) -> None:
   """Generate backflip motion.npz file from robot model.
 
@@ -350,6 +427,8 @@ def generate_backflip_motion(
     output_path: Output path for motion.npz file.
     duration: Duration of trajectory in seconds.
     timestep: Simulation timestep in seconds.
+    show_viewer: If True, opens the MuJoCo viewer.
+    include_pauses: If True, includes pauses in the generated motion file.
   """
   # Load robot model and add ground plane
   print(f"[INFO] Loading robot model from: {robot_xml}")
@@ -404,8 +483,8 @@ def generate_backflip_motion(
   print(f"[INFO] Robot has {n_joints} joints, {n_bodies} bodies")
 
   # Generate joint trajectory (neutral pose)
-  print("[INFO] Generating joint trajectory with neutral pose...")
-  joint_pos = generate_backflip_joint_traj(model, T, timestep, duration)
+  print(f"[INFO] Generating joint trajectory (pauses={'enabled' if include_pauses else 'disabled'})...")
+  joint_pos = generate_backflip_joint_traj(model, T, timestep, duration, include_pauses)
 
   # Initialize arrays for body states
   # Velocities set to zero - only body positions/orientations matter
@@ -420,7 +499,7 @@ def generate_backflip_motion(
   for t in range(T):
     # Get desired body pose from user-defined function
     current_time = t * timestep
-    root_pos, root_quat, _ = generate_reference(current_time, duration)
+    root_pos, root_quat, _ = generate_reference(current_time, duration, use_pauses=include_pauses)
 
     # Set root body pose (floating base: 3 pos + 4 quat)
     data.qpos[:3] = root_pos
@@ -461,6 +540,7 @@ def generate_backflip_motion(
   # If viewer enabled, loop the animation continuously
   if show_viewer:
     print("[INFO] Launching MuJoCo viewer in world frame...")
+    print(f"[INFO] Viewer showing trajectory {'WITH pauses' if include_pauses else 'WITHOUT pauses'}.")
     print("[INFO] Animation will loop continuously. Close viewer window to exit.")
     viewer = mujoco.viewer.launch_passive(model, data)
     # Configure camera to be in world frame (not tracking robot)
@@ -485,11 +565,16 @@ def generate_backflip_motion(
         if not viewer.is_running():
           break
 
-        # Set base pose from trajectory (root body is index 0)
-        data.qpos[:3] = body_pos_w[t, 0]
-        data.qpos[3:7] = body_quat_w[t, 0]
+        # Compute poses on-the-fly matching the motion file setting
+        current_time = t * timestep
+        root_pos, root_quat, half_joints = generate_reference(current_time, duration, use_pauses=include_pauses)
 
-        # Set joint positions from pre-computed trajectory
+        # Set base pose from on-the-fly computation
+        data.qpos[:3] = root_pos
+        data.qpos[3:7] = root_quat
+
+        # Set joint positions from on-the-fly computation
+        # Note: We're using the pre-computed joint_pos which includes mirroring
         data.qpos[7:] = joint_pos[t]
         # Set joint velocities (skip floating base velocities at indices 0-5)
         data.qvel[6:] = joint_vel[t]
@@ -517,8 +602,10 @@ def main():
     cfg.duration,
     cfg.timestep,
     cfg.show_viewer,
+    cfg.include_pauses,
   )
 
 
 if __name__ == "__main__":
+  main()
   main()
