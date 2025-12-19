@@ -84,7 +84,19 @@ def simulate_motion(cfg: SimulateMotionConfig):
 
     n_frames = motion["joint_pos"].shape[0]
     n_joints = motion["joint_pos"].shape[1]
+    
+    # Motion files are expected to be at 0.02s timestep (matching tracking task control frequency)
+    motion_timestep = 0.02
+    
+    # Calculate physics steps per motion frame
+    steps_per_frame = int(motion_timestep / cfg.timestep)
+    if abs(motion_timestep - steps_per_frame * cfg.timestep) > 1e-6:
+        print(f"[WARN] motion_timestep ({motion_timestep}s) is not evenly divisible by timestep ({cfg.timestep}s)")
+        print(f"[WARN] Using {steps_per_frame} physics steps per motion frame")
+    
     print(f"[INFO] Motion: {n_frames} frames, {n_joints} joints")
+    print(f"[INFO] Motion timestep: {motion_timestep}s, Physics timestep: {cfg.timestep}s")
+    print(f"[INFO] Running {steps_per_frame} physics steps per motion frame")
 
     # Load robot
     print(f"[INFO] Loading robot: {cfg.robot}")
@@ -238,6 +250,7 @@ def simulate_motion(cfg: SimulateMotionConfig):
     print("  - ESC: Exit\n")
 
     frame_idx = 0
+    physics_step = 0  # Track physics steps within current frame
     paused = False
     holding_final_frame = False
     hold_start_time = None
@@ -257,12 +270,13 @@ def simulate_motion(cfg: SimulateMotionConfig):
         print(f"[INFO] Recording simulation data for output...")
 
     def key_callback(keycode):
-        nonlocal paused, frame_idx, holding_final_frame, hold_start_time
+        nonlocal paused, frame_idx, physics_step, holding_final_frame, hold_start_time
         if keycode == 32:  # Space bar
             paused = not paused
             print(f"[INFO] {'Paused' if paused else 'Resumed'}")
         elif keycode == 82 or keycode == 114:  # 'R' or 'r'
             frame_idx = 0
+            physics_step = 0
             holding_final_frame = False
             hold_start_time = None
             # Reset robot state to first frame
@@ -298,7 +312,7 @@ def simulate_motion(cfg: SimulateMotionConfig):
                     ref_pos = motion["joint_pos"][-1]
                     ref_vel = motion["joint_vel"][-1]
                 else:
-                    # Normal playback
+                    # Normal playback - use current motion frame for all physics steps
                     ref_pos = motion["joint_pos"][frame_idx]
                     ref_vel = motion["joint_vel"][frame_idx]
                 
@@ -395,8 +409,12 @@ def simulate_motion(cfg: SimulateMotionConfig):
                         print(f"  Reference joints: {np.array2string(ref_pos, precision=3, suppress_small=True)}")
                         print(f"  Actual joints:    {np.array2string(curr_pos, precision=3, suppress_small=True)}")
 
-                # Record simulation data if saving output
-                if cfg.save_output and not recording_complete and recorded_joint_pos is not None:
+                # Increment physics step counter
+                physics_step += 1
+                
+                # Record simulation data if saving output (only at motion frame boundaries)
+                should_record = (physics_step >= steps_per_frame)
+                if cfg.save_output and not recording_complete and should_record and recorded_joint_pos is not None:
                     # Record physics-simulated joint angles
                     recorded_joint_pos[frame_idx] = data.qpos[7:]
                     recorded_joint_vel[frame_idx] = data.qvel[6:]  # type: ignore
@@ -418,8 +436,9 @@ def simulate_motion(cfg: SimulateMotionConfig):
                         status = "⚠ UNDERGROUND!" if trunk_height < 0 else "OK"
                         print(f"[DEBUG] Frame {frame_idx} - trunk pos: {data.xpos[1]} {status}")
 
-                # Advance frame (only if not holding)
-                if not holding_final_frame:
+                # Advance motion frame only when we've completed all physics steps
+                if physics_step >= steps_per_frame and not holding_final_frame:
+                    physics_step = 0
                     frame_idx += 1
                     if frame_idx >= n_frames:
                         if cfg.save_output and not recording_complete and recorded_joint_pos is not None:
