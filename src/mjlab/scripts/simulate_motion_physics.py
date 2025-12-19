@@ -98,11 +98,14 @@ def simulate_motion(cfg: SimulateMotionConfig):
     entity = Entity(robot_cfg)
     spec = entity._spec
 
-    # Add simple ground plane (visual reference only)
+    # Add ground plane with collision
     spec.worldbody.add_geom(
         type=mujoco.mjtGeom.mjGEOM_PLANE,
         size=[0, 0, 0.05],
         rgba=[0.5, 0.5, 0.5, 1.0],
+        contype=1,  # Ground collision type
+        conaffinity=1,  # Ground collides with robot (contype=1)
+        friction=[1.0, 0.005, 0.0001],  # Friction coefficients
     )
 
     # Compile model
@@ -216,7 +219,8 @@ def simulate_motion(cfg: SimulateMotionConfig):
 
     # Arrays for recording simulated trajectory
     recording_complete = False
-    n_bodies = model.nbody
+    # Exclude world body (body 0) - only record robot bodies for training compatibility
+    n_bodies = model.nbody - 1
     recorded_joint_pos = np.zeros((n_frames, n_joints)) if cfg.save_output else None
     recorded_joint_vel = np.zeros((n_frames, n_joints)) if cfg.save_output else None
     recorded_body_pos_w = np.zeros((n_frames, n_bodies, 3)) if cfg.save_output else None
@@ -365,18 +369,22 @@ def simulate_motion(cfg: SimulateMotionConfig):
                     recorded_joint_pos[frame_idx] = data.qpos[7:]
                     recorded_joint_vel[frame_idx] = data.qvel[6:]  # type: ignore
                     
-                    # Record physics-simulated body states
+                    # Record physics-simulated body states (skip world body at index 0)
                     for body_idx in range(n_bodies):
-                        recorded_body_pos_w[frame_idx, body_idx] = data.xpos[body_idx]  # type: ignore
-                        recorded_body_quat_w[frame_idx, body_idx] = data.xquat[body_idx]  # type: ignore
-                        recorded_body_lin_vel_w[frame_idx, body_idx] = data.cvel[body_idx, :3]  # type: ignore
-                        recorded_body_ang_vel_w[frame_idx, body_idx] = data.cvel[body_idx, 3:]  # type: ignore
+                        # MuJoCo body index starts at 1 (skip world at 0), array index starts at 0
+                        mujoco_body_idx = body_idx + 1
+                        recorded_body_pos_w[frame_idx, body_idx] = data.xpos[mujoco_body_idx]  # type: ignore
+                        recorded_body_quat_w[frame_idx, body_idx] = data.xquat[mujoco_body_idx]  # type: ignore
+                        recorded_body_lin_vel_w[frame_idx, body_idx] = data.cvel[mujoco_body_idx, :3]  # type: ignore
+                        recorded_body_ang_vel_w[frame_idx, body_idx] = data.cvel[mujoco_body_idx, 3:]  # type: ignore
                     
-                    # Debug: Print recording status (body 1 is robot trunk, body 0 is world)
+                    # Debug: Print recording status (body 0 in array is trunk, MuJoCo body 1)
                     if frame_idx == 0:
-                        print(f"[DEBUG] Recording started - trunk body pos: {data.xpos[1]}")
+                        print(f"[DEBUG] Recording started - trunk body pos: {data.xpos[1]} (saved to array index 0)")
                     elif frame_idx % 100 == 0:
-                        print(f"[DEBUG] Recording frame {frame_idx} - trunk body pos: {data.xpos[1]}")
+                        trunk_height = data.xpos[1][2]
+                        status = "⚠ UNDERGROUND!" if trunk_height < 0 else "OK"
+                        print(f"[DEBUG] Frame {frame_idx} - trunk pos: {data.xpos[1]} {status}")
 
                 # Advance frame (only if not holding)
                 if not holding_final_frame:
