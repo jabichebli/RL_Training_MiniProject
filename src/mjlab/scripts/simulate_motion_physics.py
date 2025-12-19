@@ -122,6 +122,29 @@ def simulate_motion(cfg: SimulateMotionConfig):
     joint_names = [model.joint(i).name for i in range(model.njnt) if model.joint(i).type != mujoco.mjtJoint.mjJNT_FREE]
     actuator_names = [model.actuator(i).name for i in range(model.nu)]
     
+    # Set per-joint gains based on Go2 specifications
+    # Hip/Thigh: kp=16.0, kd=1.02
+    # Knee (calf): kp=32.0, kd=2.04
+    kp_array = np.zeros(model.nu)
+    kd_array = np.zeros(model.nu)
+    
+    for i in range(model.nu):
+        actuator = model.actuator(i)
+        trnid = actuator.trnid[0]
+        if trnid >= 0 and trnid < model.njnt:
+            joint_name = model.joint(trnid).name
+            # Check if this is a knee/calf joint
+            if 'calf' in joint_name.lower():
+                kp_array[i] = 32.0  # Knee stiffness
+                kd_array[i] = 2.04  # Knee damping
+            else:
+                kp_array[i] = 16.0  # Hip/Thigh stiffness
+                kd_array[i] = 1.02  # Hip/Thigh damping
+    
+    print(f"\n[INFO] Using Go2-specific gains:")
+    for i in range(model.nu):
+        print(f"  [{i}] {actuator_names[i]:20s}: kp={kp_array[i]:5.2f} Nm/rad, kd={kd_array[i]:5.2f} Nm/(rad/s)")
+    
     # Initialize robot at first frame
     print(f"[INFO] Model DOF: qpos={model.nq}, qvel={model.nv}, actuators={model.nu}")
     print(f"[INFO] Motion file: joint_pos shape={motion['joint_pos'][0].shape}, joint_vel shape={motion['joint_vel'][0].shape}")
@@ -197,7 +220,9 @@ def simulate_motion(cfg: SimulateMotionConfig):
         print("[WARNING] Using remapping to fix control signals...")
     
     if cfg.use_controller:
-        print(f"[INFO] Mode: PD Controller (kp={cfg.kp}, kd={cfg.kd})")
+        print(f"[INFO] Mode: PD Controller with Go2-specific gains")
+        print(f"  Hip/Thigh: kp=16.0 Nm/rad, kd=1.02 Nm/(rad/s)")
+        print(f"  Knee:      kp=32.0 Nm/rad, kd=2.04 Nm/(rad/s)")
     else:
         print(f"[INFO] Mode: Kinematic Replay with Physics (very high gains: kp=10000, kd=100)")
     print(f"[INFO] Gravity: {'OFF (midair test)' if cfg.no_gravity else 'ON'}")
@@ -284,14 +309,18 @@ def simulate_motion(cfg: SimulateMotionConfig):
 
                     pos_error = ref_pos - curr_pos
                     vel_error = ref_vel - curr_vel
-                    ctrl = cfg.kp * pos_error + cfg.kd * vel_error
-
-                    # Remap control from joint order to actuator order
-                    # data.ctrl[actuator_idx] = ctrl[joint_idx] where actuator controls joint
-                    ctrl_remapped = ctrl[actuator_to_joint]
+                    
+                    # Compute control directly in actuator order using per-actuator gains
+                    ctrl = np.zeros(model.nu)
+                    for act_idx in range(model.nu):
+                        joint_idx = actuator_to_joint[act_idx]
+                        ctrl[act_idx] = (
+                            kp_array[act_idx] * pos_error[joint_idx] + 
+                            kd_array[act_idx] * vel_error[joint_idx]
+                        )
                     
                     # Apply control with actuator limits
-                    ctrl_clipped = np.clip(ctrl_remapped, ctrl_range[:, 0], ctrl_range[:, 1])
+                    ctrl_clipped = np.clip(ctrl, ctrl_range[:, 0], ctrl_range[:, 1])
                     data.ctrl[:] = ctrl_clipped
 
                     # Step physics
@@ -315,9 +344,10 @@ def simulate_motion(cfg: SimulateMotionConfig):
                         print(f"Reference vel (joint order): {np.array2string(ref_vel, precision=4, suppress_small=True)}")
                         print(f"Actual vel (joint order):    {np.array2string(curr_vel, precision=4, suppress_small=True)}")
                         print(f"Vel error (joint order):     {np.array2string(vel_error, precision=4, suppress_small=True)}")
-                        print(f"Control signal (joint order):  {np.array2string(ctrl, precision=4, suppress_small=True)}")
-                        print(f"Control remapped (act order):  {np.array2string(ctrl_remapped, precision=4, suppress_small=True)}")
-                        print(f"Control clipped (act order):   {np.array2string(ctrl_clipped, precision=4, suppress_small=True)}")
+                        print(f"Actuator gains (kp):         {np.array2string(kp_array, precision=2, suppress_small=True)}")
+                        print(f"Actuator gains (kd):         {np.array2string(kd_array, precision=2, suppress_small=True)}")
+                        print(f"Control signal (act order):  {np.array2string(ctrl, precision=4, suppress_small=True)}")
+                        print(f"Control clipped (act order): {np.array2string(ctrl_clipped, precision=4, suppress_small=True)}")
                         print(f"Ctrl limits:   min={np.array2string(ctrl_range[:, 0], precision=1)}")
                         print(f"               max={np.array2string(ctrl_range[:, 1], precision=1)}")
                     elif frame_idx % 50 == 0:
@@ -339,13 +369,15 @@ def simulate_motion(cfg: SimulateMotionConfig):
                     
                     pos_error = ref_pos - curr_pos
                     vel_error = ref_vel - curr_vel
-                    ctrl = kp_kinematic * pos_error + kd_kinematic * vel_error
                     
-                    # Remap control from joint order to actuator order
-                    ctrl_remapped = ctrl[actuator_to_joint]
+                    # Compute control directly in actuator order
+                    ctrl = np.zeros(model.nu)
+                    for act_idx in range(model.nu):
+                        joint_idx = actuator_to_joint[act_idx]
+                        ctrl[act_idx] = kp_kinematic * pos_error[joint_idx] + kd_kinematic * vel_error[joint_idx]
                     
                     # Apply control with actuator limits
-                    ctrl_clipped = np.clip(ctrl_remapped, ctrl_range[:, 0], ctrl_range[:, 1])
+                    ctrl_clipped = np.clip(ctrl, ctrl_range[:, 0], ctrl_range[:, 1])
                     data.ctrl[:] = ctrl_clipped
                     
                     # Step physics (body is affected by gravity/contact, joints track reference)
