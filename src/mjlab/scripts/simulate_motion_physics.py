@@ -47,9 +47,11 @@ def main():
     steps_per_frame = int(motion_timestep / model.opt.timestep)
 
     # Build joint-to-actuator mapping
+    # Use same filtering as generate_backflip_traj.py: exclude floating_base_joint by name
     joint_names = [model.joint(i).name for i in range(model.njnt) 
-                   if model.joint(i).type != mujoco.mjtJoint.mjJNT_FREE]
-    actuator_to_joint = np.zeros(model.nu, dtype=int)
+                   if model.joint(i).name != "floating_base_joint"]
+    actuator_names = [model.actuator(i).name for i in range(model.nu)]
+    actuator_to_joint = np.full(model.nu, -1, dtype=int)  # Initialize to -1 to mark unmapped
     
     for joint_idx, jname in enumerate(joint_names):
         for act_idx in range(model.nu):
@@ -61,23 +63,38 @@ def main():
 
     # PD gains
     if cfg.use_controller:
-        # Go2-specific: knee=32/2.04, hip/thigh=16/1.02
-        kp = np.array([32.0 if 'calf' in model.joint(model.actuator(i).trnid[0]).name.lower() 
-                       else 16.0 for i in range(model.nu)])
-        kd = np.array([2.04 if 'calf' in model.joint(model.actuator(i).trnid[0]).name.lower() 
-                       else 1.02 for i in range(model.nu)])
+        # Calculated from go2_constants.py:
+        # NATURAL_FREQ = 10.0 * 2.0 * π ≈ 62.83 rad/s
+        # DAMPING_RATIO = 2.0
+        # HIP: reflected_inertia = 0.000111842 * 6² = 0.004026
+        #      kp = 0.004026 * 62.83² ≈ 15.89, kd = 2*2*0.004026*62.83 ≈ 1.01
+        # KNEE: reflected_inertia = 0.000111842 * 12² = 0.016105
+        #       kp = 0.016105 * 62.83² ≈ 63.55, kd = 2*2*0.016105*62.83 ≈ 4.05
+        kp = np.array([63.55 if 'calf' in model.joint(model.actuator(i).trnid[0]).name.lower() 
+                       else 15.89 for i in range(model.nu)])
+        kd = np.array([4.05 if 'calf' in model.joint(model.actuator(i).trnid[0]).name.lower() 
+                       else 1.01 for i in range(model.nu)])
     else:
         # Very high gains for kinematic replay
         kp = np.full(model.nu, 10000.0)
         kd = np.full(model.nu, 100.0)
+        # Remove control range limits for high-gain kinematic replay
+        model.actuator_ctrlrange[:, 0] = -10000.0
+        model.actuator_ctrlrange[:, 1] = 10000.0
+
+    # Check motion file range for calf joints
+    print("\nCalf joint motion file range:")
+    for i, jname in enumerate(joint_names):
+        if 'calf' in jname.lower():
+            min_val = motion["joint_pos"][:, i].min()
+            max_val = motion["joint_pos"][:, i].max()
+            print(f"  {jname:20s}: min={min_val:.3f}, max={max_val:.3f}")
 
     # Initialize
     data.qpos[2] = 0.29
     data.qpos[7:] = motion["joint_pos"][0]
     data.qvel[6:] = motion["joint_vel"][0]
     mujoco.mj_forward(model, data)
-    
-    print(f"Mode: {'PD controller' if cfg.use_controller else 'Kinematic replay (high gains)'}")
 
     # Recording arrays
     n_bodies = model.nbody - 1
@@ -105,60 +122,98 @@ def main():
             data.qvel[6:] = motion["joint_vel"][0]
             mujoco.mj_forward(model, data)
 
-    with mujoco.viewer.launch_passive(model, data, key_callback=key_callback) as viewer:
-        viewer.cam.lookat[:] = [0, 0, 0.3]
-        viewer.cam.distance = 3.0
-        viewer.cam.elevation = -20
+    try:
+        with mujoco.viewer.launch_passive(model, data, key_callback=key_callback) as viewer:
+            viewer.cam.lookat[:] = [0, 0, 0.3]
+            viewer.cam.distance = 3.0
+            viewer.cam.elevation = -20
 
-        while viewer.is_running():
-            if not paused:
-                ref_pos = motion["joint_pos"][frame_idx]
-                ref_vel = motion["joint_vel"][frame_idx]
-                
-                # PD control with joint-to-actuator mapping
-                pos_error = ref_pos - data.qpos[7:]
-                vel_error = ref_vel - data.qvel[6:]
-                ctrl = np.zeros(model.nu)
-                for act_idx in range(model.nu):
-                    joint_idx = actuator_to_joint[act_idx]
-                    ctrl[act_idx] = kp[act_idx] * pos_error[joint_idx] + kd[act_idx] * vel_error[joint_idx]
-                data.ctrl[:] = np.clip(ctrl, model.actuator_ctrlrange[:, 0], model.actuator_ctrlrange[:, 1])
-                mujoco.mj_step(model, data)
-                physics_step += 1
+            while viewer.is_running():
+                if not paused:
+                    ref_pos = motion["joint_pos"][frame_idx]
+                    ref_vel = motion["joint_vel"][frame_idx]
+                    
+                    # PD control with joint-to-actuator mapping
+                    pos_error = ref_pos - data.qpos[7:]
+                    vel_error = ref_vel - data.qvel[6:]
+                    ctrl = np.zeros(model.nu)
+                    for act_idx in range(model.nu):
+                        joint_idx = actuator_to_joint[act_idx]
+                        if joint_idx >= 0 and joint_idx < len(ref_pos):
+                            ctrl[act_idx] = kp[act_idx] * pos_error[joint_idx] + kd[act_idx] * vel_error[joint_idx]
+                    
+                    # Clipping occurs here
+                    data.ctrl[:] = np.clip(ctrl, model.actuator_ctrlrange[:, 0], model.actuator_ctrlrange[:, 1])
+                    
+                    # Monitor when reference is near -2.3 for rear calf joints
+                    if physics_step == 0:
+                        for i, jname in enumerate(joint_names):
+                            if 'calf' in jname.lower() and ('RR' in jname or 'RL' in jname):
+                                ref_val = ref_pos[i]
+                                curr_val = data.qpos[7 + i]
+                                if ref_val < -2.0 and abs(ref_val - curr_val) > 0.1:  # Ref near -2.3 but not reaching it
+                                    act_idx = next((a for a in range(model.nu) if actuator_to_joint[a] == i), None)
+                                    if act_idx is not None:
+                                        ctrl_val = ctrl[act_idx]
+                                        ctrl_applied = data.ctrl[act_idx]
+                                        print(f"Frame {frame_idx}: {jname} ref={ref_val:.3f} curr={curr_val:.3f} err={ref_val-curr_val:.3f} ctrl={ctrl_val:.1f} applied={ctrl_applied:.1f}")
+                    
+                    mujoco.mj_step(model, data)
+                    physics_step += 1
 
-                # Record at frame boundaries
-                if cfg.save_output and rec and physics_step >= steps_per_frame and not recorded:
-                    rec["joint_pos"][frame_idx] = data.qpos[7:]
-                    rec["joint_vel"][frame_idx] = data.qvel[6:]
-                    for b in range(n_bodies):
-                        rec["body_pos_w"][frame_idx, b] = data.xpos[b + 1]
-                        rec["body_quat_w"][frame_idx, b] = data.xquat[b + 1]
-                        rec["body_lin_vel_w"][frame_idx, b] = data.cvel[b + 1, :3]
-                        rec["body_ang_vel_w"][frame_idx, b] = data.cvel[b + 1, 3:]
+                    # Record at frame boundaries
+                    if cfg.save_output and rec and physics_step >= steps_per_frame and not recorded:
+                        rec["joint_pos"][frame_idx] = data.qpos[7:]
+                        rec["joint_vel"][frame_idx] = data.qvel[6:]
+                        for b in range(n_bodies):
+                            rec["body_pos_w"][frame_idx, b] = data.xpos[b + 1]
+                            rec["body_quat_w"][frame_idx, b] = data.xquat[b + 1]
+                            rec["body_lin_vel_w"][frame_idx, b] = data.cvel[b + 1, :3]
+                            rec["body_ang_vel_w"][frame_idx, b] = data.cvel[b + 1, 3:]
 
-                # Advance frame
-                if physics_step >= steps_per_frame:
-                    physics_step = 0
-                    frame_idx += 1
-                    if frame_idx >= n_frames:
-                        if cfg.save_output and rec and not recorded:
-                            np.savez(
-                                cfg.output_file,
-                                joint_pos=rec["joint_pos"],
-                                joint_vel=rec["joint_vel"],
-                                body_pos_w=rec["body_pos_w"],
-                                body_quat_w=rec["body_quat_w"],
-                                body_lin_vel_w=rec["body_lin_vel_w"],
-                                body_ang_vel_w=rec["body_ang_vel_w"],
-                            )
-                            print(f"Saved: {cfg.output_file}")
-                            recorded = True
-                        frame_idx = 0 if cfg.loop else n_frames - 1
-                        if not cfg.loop:
-                            break
+                    # Advance frame
+                    if physics_step >= steps_per_frame:
+                        physics_step = 0
+                        frame_idx += 1
+                        if frame_idx >= n_frames:
+                            if cfg.save_output and rec and not recorded:
+                                np.savez(
+                                    cfg.output_file,
+                                    joint_pos=rec["joint_pos"],
+                                    joint_vel=rec["joint_vel"],
+                                    body_pos_w=rec["body_pos_w"],
+                                    body_quat_w=rec["body_quat_w"],
+                                    body_lin_vel_w=rec["body_lin_vel_w"],
+                                    body_ang_vel_w=rec["body_ang_vel_w"],
+                                )
+                                print(f"Saved: {cfg.output_file}")
+                                recorded = True
+                            frame_idx = 0 if cfg.loop else n_frames - 1
+                            if not cfg.loop:
+                                break
 
-            viewer.sync()
-            time.sleep(model.opt.timestep)
+                if viewer.is_running():
+                    viewer.sync()
+                    time.sleep(model.opt.timestep)
+                else:
+                    break
+    except KeyboardInterrupt:
+        print("\nInterrupted by user")
+        # Save output if requested and not already saved
+        if cfg.save_output and rec and not recorded:
+            np.savez(
+                cfg.output_file,
+                joint_pos=rec["joint_pos"],
+                joint_vel=rec["joint_vel"],
+                body_pos_w=rec["body_pos_w"],
+                body_quat_w=rec["body_quat_w"],
+                body_lin_vel_w=rec["body_lin_vel_w"],
+                body_ang_vel_w=rec["body_ang_vel_w"],
+            )
+            print(f"Saved: {cfg.output_file}")
+    except Exception as e:
+        print(f"\nError: {e}")
+        raise
 
 
 if __name__ == "__main__":
