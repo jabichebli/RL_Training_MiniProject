@@ -31,10 +31,10 @@ class SimulateMotionConfig:
     robot: str = "go2"
     """Robot to use: 'go1' or 'go2'."""
 
-    kp: float = 300
+    kp: float = 40
     """PD controller proportional gain (Nm/rad). Realistic range: Hip~16, Knee~64."""
 
-    kd: float = 30
+    kd: float = 4
     """PD controller derivative gain (Nm/(rad/s)). Realistic range: Hip~1, Knee~4."""
 
     loop: bool = True
@@ -361,15 +361,22 @@ def simulate_motion(cfg: SimulateMotionConfig):
 
                 # Record simulation data if saving output
                 if cfg.save_output and not recording_complete and recorded_joint_pos is not None:
+                    # Record physics-simulated joint angles
                     recorded_joint_pos[frame_idx] = data.qpos[7:]
                     recorded_joint_vel[frame_idx] = data.qvel[6:]  # type: ignore
                     
-                    # Record all body states
+                    # Record physics-simulated body states
                     for body_idx in range(n_bodies):
                         recorded_body_pos_w[frame_idx, body_idx] = data.xpos[body_idx]  # type: ignore
                         recorded_body_quat_w[frame_idx, body_idx] = data.xquat[body_idx]  # type: ignore
                         recorded_body_lin_vel_w[frame_idx, body_idx] = data.cvel[body_idx, :3]  # type: ignore
                         recorded_body_ang_vel_w[frame_idx, body_idx] = data.cvel[body_idx, 3:]  # type: ignore
+                    
+                    # Debug: Print recording status (body 1 is robot trunk, body 0 is world)
+                    if frame_idx == 0:
+                        print(f"[DEBUG] Recording started - trunk body pos: {data.xpos[1]}")
+                    elif frame_idx % 100 == 0:
+                        print(f"[DEBUG] Recording frame {frame_idx} - trunk body pos: {data.xpos[1]}")
 
                 # Advance frame (only if not holding)
                 if not holding_final_frame:
@@ -377,7 +384,20 @@ def simulate_motion(cfg: SimulateMotionConfig):
                     if frame_idx >= n_frames:
                         if cfg.save_output and not recording_complete and recorded_joint_pos is not None:
                             recording_complete = True
-                            print(f"[INFO] Recording complete! Saving to {cfg.output_file}")
+                            print(f"\n[INFO] Recording complete! Saving to {cfg.output_file}")
+                            print(f"[INFO] Data shapes:")
+                            print(f"  joint_pos: {recorded_joint_pos.shape}")
+                            if recorded_joint_vel is not None:
+                                print(f"  joint_vel: {recorded_joint_vel.shape}")
+                            if recorded_body_pos_w is not None:
+                                print(f"  body_pos_w: {recorded_body_pos_w.shape}")
+                            if recorded_body_quat_w is not None:
+                                print(f"  body_quat_w: {recorded_body_quat_w.shape}")
+                            if recorded_body_lin_vel_w is not None:
+                                print(f"  body_lin_vel_w: {recorded_body_lin_vel_w.shape}")
+                            if recorded_body_ang_vel_w is not None:
+                                print(f"  body_ang_vel_w: {recorded_body_ang_vel_w.shape}")
+                            
                             np.savez(
                                 cfg.output_file,
                                 joint_pos=recorded_joint_pos,
@@ -388,6 +408,12 @@ def simulate_motion(cfg: SimulateMotionConfig):
                                 body_ang_vel_w=recorded_body_ang_vel_w,
                             )
                             print(f"[INFO] Physics-simulated motion saved to: {cfg.output_file}")
+                            
+                            # Verify saved file
+                            verify_data = np.load(cfg.output_file)
+                            print(f"[INFO] Verification - saved file contains keys: {list(verify_data.keys())}")
+                            if 'body_pos_w' in verify_data:
+                                print(f"[INFO] Verification - body_pos_w shape: {verify_data['body_pos_w'].shape}")
                         
                         if cfg.loop:
                             frame_idx = 0

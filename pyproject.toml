@@ -62,6 +62,8 @@ list_envs = "mjlab.scripts.list_envs:main"
 viz-nan = "mjlab.scripts.nan_viz:main"
 generate-backflip-traj = "mjlab.scripts.generate_backflip_traj:main"
 simulate-motion = "mjlab.scripts.simulate_motion_physics:main"
+synthesize-motion = "mjlab.scripts.synthesize_motion:main"
+preview-motion = "mjlab.scripts.preview_motion:main"
 
 [dependency-groups]
 dev = [

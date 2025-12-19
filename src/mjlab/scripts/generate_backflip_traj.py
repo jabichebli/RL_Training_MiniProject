@@ -31,7 +31,7 @@ class GenerateBackflipTrajConfig:
 
   robot: str
   output: str = "backflip_motion.npz"
-  duration: float = 3.0
+  duration: float = 5.0
   timestep: float = 0.005
   show_viewer: bool = False
   include_pauses: bool = False
