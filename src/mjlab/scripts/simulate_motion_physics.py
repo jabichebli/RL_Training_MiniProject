@@ -38,7 +38,10 @@ class SimulateMotionConfig:
     """PD controller derivative gain (Nm/(rad/s)). Realistic range: Hip~1, Knee~4."""
 
     loop: bool = True
-    """Whether to loop the motion continuously. If save_output=True and loop=False, exits after one pass."""
+    """Whether to loop the motion continuously. If False, plays once, holds final position for 5s, then exits."""
+    
+    hold_duration: float = 5.0
+    """Duration (seconds) to hold final position before exiting when loop=False."""
 
     timestep: float = 0.002
     """Physics timestep in seconds."""
@@ -197,6 +200,10 @@ def simulate_motion(cfg: SimulateMotionConfig):
     print(f"[INFO] Gravity: {'OFF (midair test)' if cfg.no_gravity else 'ON'}")
     if cfg.save_output:
         print(f"[INFO] Will save physics-simulated trajectory to: {cfg.output_file}")
+    if cfg.loop:
+        print("[INFO] Looping: Motion will repeat continuously")
+    else:
+        print(f"[INFO] Single play: Will hold final frame for {cfg.hold_duration}s then exit")
     print("[INFO] Controls:")
     print("  - SPACE: Pause/Resume")
     print("  - R: Reset to frame 0")
@@ -204,6 +211,8 @@ def simulate_motion(cfg: SimulateMotionConfig):
 
     frame_idx = 0
     paused = False
+    holding_final_frame = False
+    hold_start_time = None
 
     # Arrays for recording simulated trajectory
     recording_complete = False
@@ -219,12 +228,14 @@ def simulate_motion(cfg: SimulateMotionConfig):
         print(f"[INFO] Recording simulation data for output...")
 
     def key_callback(keycode):
-        nonlocal paused, frame_idx
+        nonlocal paused, frame_idx, holding_final_frame, hold_start_time
         if keycode == 32:  # Space bar
             paused = not paused
             print(f"[INFO] {'Paused' if paused else 'Resumed'}")
         elif keycode == 82 or keycode == 114:  # 'R' or 'r'
             frame_idx = 0
+            holding_final_frame = False
+            hold_start_time = None
             # Reset robot state to first frame
             if cfg.no_gravity:
                 data.qpos[2] = cfg.init_height  # Maintain suspended height
@@ -243,8 +254,24 @@ def simulate_motion(cfg: SimulateMotionConfig):
 
         while viewer.is_running():
             if not paused:
-                ref_pos = motion["joint_pos"][frame_idx]
-                ref_vel = motion["joint_vel"][frame_idx]
+                # Check if we're holding the final frame
+                if holding_final_frame:
+                    if hold_start_time is None:
+                        hold_start_time = time.time()
+                        print(f"[INFO] Holding final frame for {cfg.hold_duration}s...")
+                    
+                    # Check if hold duration has elapsed
+                    if time.time() - hold_start_time >= cfg.hold_duration:
+                        print("[INFO] Hold duration complete. Exiting.")
+                        break
+                    
+                    # Use last frame's reference
+                    ref_pos = motion["joint_pos"][-1]
+                    ref_vel = motion["joint_vel"][-1]
+                else:
+                    # Normal playback
+                    ref_pos = motion["joint_pos"][frame_idx]
+                    ref_vel = motion["joint_vel"][frame_idx]
                 
                 if cfg.use_controller:
                     # PD control mode: tau = kp * (q_ref - q) + kd * (qd_ref - qd)
@@ -344,27 +371,30 @@ def simulate_motion(cfg: SimulateMotionConfig):
                         recorded_body_lin_vel_w[frame_idx, body_idx] = data.cvel[body_idx, :3]  # type: ignore
                         recorded_body_ang_vel_w[frame_idx, body_idx] = data.cvel[body_idx, 3:]  # type: ignore
 
-                # Advance frame
-                frame_idx += 1
-                if frame_idx >= n_frames:
-                    if cfg.save_output and not recording_complete and recorded_joint_pos is not None:
-                        recording_complete = True
-                        print(f"[INFO] Recording complete! Saving to {cfg.output_file}")
-                        np.savez(
-                            cfg.output_file,
-                            joint_pos=recorded_joint_pos,
-                            joint_vel=recorded_joint_vel,
-                            body_pos_w=recorded_body_pos_w,
-                            body_quat_w=recorded_body_quat_w,
-                            body_lin_vel_w=recorded_body_lin_vel_w,
-                            body_ang_vel_w=recorded_body_ang_vel_w,
-                        )
-                        print(f"[INFO] Physics-simulated motion saved to: {cfg.output_file}")
-                    
-                    if cfg.loop:
-                        frame_idx = 0
-                    else:
-                        break
+                # Advance frame (only if not holding)
+                if not holding_final_frame:
+                    frame_idx += 1
+                    if frame_idx >= n_frames:
+                        if cfg.save_output and not recording_complete and recorded_joint_pos is not None:
+                            recording_complete = True
+                            print(f"[INFO] Recording complete! Saving to {cfg.output_file}")
+                            np.savez(
+                                cfg.output_file,
+                                joint_pos=recorded_joint_pos,
+                                joint_vel=recorded_joint_vel,
+                                body_pos_w=recorded_body_pos_w,
+                                body_quat_w=recorded_body_quat_w,
+                                body_lin_vel_w=recorded_body_lin_vel_w,
+                                body_ang_vel_w=recorded_body_ang_vel_w,
+                            )
+                            print(f"[INFO] Physics-simulated motion saved to: {cfg.output_file}")
+                        
+                        if cfg.loop:
+                            frame_idx = 0
+                        else:
+                            # Enter holding mode instead of breaking immediately
+                            holding_final_frame = True
+                            frame_idx = n_frames - 1  # Stay on last frame
 
             viewer.sync()
             time.sleep(cfg.timestep)

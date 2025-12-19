@@ -125,7 +125,7 @@ def generate_reference(
   x_2 = -0.2              # Phase 2: Forward position
   z_2 = 0.43             # Phase 2: Vertical position
   theta_loading = 65.0   # Phase 2: Loading (deep crouch)
-  t_2_transition = t_1_pause_end + 0.4  # Phase 2: Transition end (before pause)
+  t_2_transition = t_1_pause_end + 0.3  # Phase 2: Transition end (before pause)
   t_2_pause_end = t_2_transition + pause_duration  # Phase 2: End (including pause)
   fr_thigh_2 = 1.3
   fr_calf_2 = -1.2
@@ -137,7 +137,7 @@ def generate_reference(
   x_squat = -0.3          # Phase 3: Forward position
   z_squat = 0.48          # Phase 3: Vertical position
   theta_squat = 95.0      # Phase 3: Squat (deepest position)
-  t_3_transition = t_2_pause_end + 0.05  # Phase 3: Transition end (before pause)
+  t_3_transition = t_2_pause_end + 0.03  # Phase 3: Transition end (before pause)
   t_3_pause_end = t_3_transition + pause_duration  # Phase 3: End (including pause)
   fr_thigh_squat = 1.3
   fr_calf_squat = -1.2
@@ -149,7 +149,7 @@ def generate_reference(
   x_4 = -0.4              # Phase 4: Forward position
   z_4 = 0.55             # Phase 4: Vertical position
   theta_takeoff = 110.0   # Phase 4: Takeoff (push off)
-  t_4_transition = t_3_pause_end + 0.05  # Phase 4: Transition end (before pause)
+  t_4_transition = t_3_pause_end + 0.03  # Phase 4: Transition end (before pause)
   t_4_pause_end = t_4_transition + pause_duration  # Phase 4: End (including pause)
   fr_thigh_4 = 0.6
   fr_calf_4 = -1.6
@@ -157,13 +157,17 @@ def generate_reference(
   rr_calf_4 = -0.5
 
   # --- Phase 5: Flight parameters ---
-  t_flight_end = 1.25    # Phase 5: End of flight
-  theta_flight_end = 330.0  # Phase 5: End of flight (nearly upright after rotation)
+  theta_flight_end = 330.0  # Phase 5: End of flight (nearly complete rotation)
+  t_5_flight_duration = 0.45  # Phase 5: Flight duration
+  t_5_transition = t_4_pause_end + t_5_flight_duration  # Phase 5: End of flight
   
   # --- Phase 6: Landing parameters ---
-  z_ground = 0.29        # Landing ground height (same as z_0)
-  t_landing_duration = 0.3  # Phase 6: Landing duration
-  theta_final = 360.0    # Phase 6: Landing (complete rotation)
+  x_6 = -0.7              # Phase 6: Return to initial x position
+  z_6 = z_0              # Phase 6: Return to initial z position (ground level)
+  theta_landing = 360.0  # Phase 6: Landing (complete rotation back to 0)
+  t_6_landing_duration = 0.3  # Phase 6: Landing duration
+  t_6_transition = t_5_transition + t_6_landing_duration  # Phase 6: End of landing
+  # No pause after landing - trajectory ends
   
   # ============================================================================
 
@@ -266,44 +270,66 @@ def generate_reference(
     rr_thigh = rr_thigh_squat + (rr_thigh_4 - rr_thigh_squat) * s
     rr_calf = rr_calf_squat + (rr_calf_4 - rr_calf_squat) * s
 
-  # Phase 4: Pause and hold position after takeoff
-  else:
+  # Phase 4: Pause
+  elif t < t_4_pause_end:
     theta_deg = theta_takeoff
     x = x_4
     z = z_4
-
     fr_thigh = fr_thigh_4
     fr_calf = fr_calf_4
     rr_thigh = rr_thigh_4
     rr_calf = rr_calf_4
 
-  # TODO: Add Phase 5 (Flight) and Phase 6 (Landing) here when ready
-  # Phase 5: Flight
-  # elif t <= t_flight_end:
-  #   flight_time = t - t_takeoff_end
-  #   flight_duration = t_flight_end - t_takeoff_end
-  #   theta_deg = theta_takeoff + (flight_time / flight_duration) * (theta_flight_end - theta_takeoff)
-  #   x = -0.5 * flight_time
-  #   z = z_4 + v_z0 * flight_time - 0.5 * g * flight_time * flight_time
-  #   fr_thigh = fr_thigh_4
-  #   fr_calf = fr_calf_4
-  #   rr_thigh = rr_thigh_4
-  #   rr_calf = rr_calf_4
-  #
-  # Phase 6: Landing
-  # else:
-  #   landing_time = min((t - t_flight_end) / t_landing_duration, 1.0)
-  #   land_blend = min(landing_time / 0.5, 1.0)
-  #   s_land = land_blend * land_blend * (3.0 - 2.0 * land_blend)
-  #   theta_deg = theta_flight_end + landing_time * (theta_final - theta_flight_end)
-  #   flight_duration = t_flight_end - t_takeoff_end
-  #   x = -0.5 * flight_duration
-  #   z_apex = z_4 + v_z0 * flight_duration - 0.5 * g * flight_duration * flight_duration
-  #   z = z_ground + (z_apex - z_ground) * (1.0 - landing_time)
-  #   fr_thigh = fr_thigh_4 + (fr_thigh - fr_thigh_4) * s_land
-  #   fr_calf = fr_calf_4 + (fr_calf - fr_calf_4) * s_land
-  #   rr_thigh = rr_thigh_4 + (rr_thigh - rr_thigh_4) * s_land
-  #   rr_calf = rr_calf_4 + (rr_calf - rr_calf_4) * s_land
+  # Phase 5: Flight (ballistic trajectory)
+  elif t < t_5_transition:
+    flight_time = t - t_4_pause_end
+    flight_alpha = flight_time / t_5_flight_duration
+    
+    # Linear rotation through the flip
+    theta_deg = theta_takeoff + flight_alpha * (theta_flight_end - theta_takeoff)
+    
+    # Parabolic motion (ballistic flight)
+    x = x_4 + (-0.5 * flight_time)  # Move backward during flight
+    z = z_4 + v_z0 * flight_time - 0.5 * g * flight_time * flight_time
+    
+    # Maintain takeoff joint angles during flight
+    fr_thigh = fr_thigh_4
+    fr_calf = fr_calf_4
+    rr_thigh = rr_thigh_4
+    rr_calf = rr_calf_4
+
+  # Phase 6: Landing (return to initial position)
+  elif t < t_6_transition:
+    landing_time = t - t_5_transition
+    landing_alpha = landing_time / t_6_landing_duration
+    s = landing_alpha * landing_alpha * (3.0 - 2.0 * landing_alpha)  # smoothstep
+    
+    # Calculate flight end position
+    x_flight_end = x_4 + (-0.5 * t_5_flight_duration)
+    z_flight_end = z_4 + v_z0 * t_5_flight_duration - 0.5 * g * t_5_flight_duration * t_5_flight_duration
+    
+    # Return body pose to initial state
+    theta_deg = theta_flight_end + landing_alpha * (theta_landing - theta_flight_end)
+    x = x_flight_end + (x_6 - x_flight_end) * s
+    z = z_flight_end + (z_6 - z_flight_end) * s
+    
+    # Return joints to initial neutral stance
+    fr_thigh = fr_thigh_4 + (1.0 - fr_thigh_4) * s
+    fr_calf = fr_calf_4 + (-1.9 - fr_calf_4) * s
+    rr_thigh = rr_thigh_4 + (1.0 - rr_thigh_4) * s
+    rr_calf = rr_calf_4 + (-1.9 - rr_calf_4) * s
+
+  # Hold final position
+  else:
+    theta_deg = theta_landing
+    x = x_6
+    z = z_6
+    
+    # Back to initial neutral stance
+    fr_thigh = 1.0
+    fr_calf = -1.9
+    rr_thigh = 1.0
+    rr_calf = -1.9
 
   # Convert pitch angle to quaternion (rotation around Y-axis)
   theta_rad = np.deg2rad(theta_deg)
@@ -607,5 +633,4 @@ def main():
 
 
 if __name__ == "__main__":
-  main()
   main()
