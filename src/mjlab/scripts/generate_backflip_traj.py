@@ -137,7 +137,7 @@ def generate_reference(
   x_squat = -0.3          # Phase 3: Forward position
   z_squat = 0.48          # Phase 3: Vertical position
   theta_squat = 95.0      # Phase 3: Squat (deepest position)
-  t_3_transition = t_2_pause_end + 0.03  # Phase 3: Transition end (before pause)
+  t_3_transition = t_2_pause_end + 0.1  # Phase 3: Transition end (before pause)
   t_3_pause_end = t_3_transition + pause_duration  # Phase 3: End (including pause)
   fr_thigh_squat = 1.3
   fr_calf_squat = -1.2
@@ -149,12 +149,12 @@ def generate_reference(
   x_4 = -0.4              # Phase 4: Forward position
   z_4 = 0.55             # Phase 4: Vertical position
   theta_takeoff = 110.0   # Phase 4: Takeoff (push off)
-  t_4_transition = t_3_pause_end + 0.03  # Phase 4: Transition end (before pause)
+  t_4_transition = t_3_pause_end + 0.05  # Phase 4: Transition end (before pause)
   t_4_pause_end = t_4_transition + pause_duration  # Phase 4: End (including pause)
   fr_thigh_4 = 0.6
   fr_calf_4 = -1.6
-  rr_thigh_4 = 1.8
-  rr_calf_4 = -0.5
+  rr_thigh_4 = 2.4
+  rr_calf_4 = -0.8
 
   # --- Phase 5: Flight parameters ---
   theta_flight_end = 330.0  # Phase 5: End of flight (nearly complete rotation)
