@@ -111,12 +111,12 @@ def generate_reference(
 
   # --- Phase 1: Preparation joint angles ---
   x_1 = -0.05              # Phase 1: Forward position
-  z_1 = 0.29             # Phase 1: Vertical position
-  theta_prep = 10.0      # Phase 1: Preparation (initial crouch)
+  z_1 = 0.31             # Phase 1: Vertical position
+  theta_prep = 20.0      # Phase 1: Preparation (initial crouch)
   t_1_transition = t_0_pause_end + 0.3  # Phase 1: Transition end (before pause)
   t_1_pause_end = t_1_transition + pause_duration  # Phase 1: End (including pause)
-  fr_thigh_1 = 0.7
-  fr_calf_1 = -1.4
+  fr_thigh_1 = 0.4
+  fr_calf_1 = -0.7
   rr_thigh_1 = 0.3
   rr_calf_1 = -1.8
   
