@@ -27,6 +27,16 @@ def UNITREE_GO2_FLAT_TRACKING_ENV_CFG() -> ManagerBasedRlEnvCfg:
     reduce="none",
     num_slots=1,
   )
+  # Foot contact sensor for ground reaction force observations
+  # Match the foot collision geoms (FR_foot_collision, etc.) against terrain
+  foot_contact_cfg = ContactSensorCfg(
+    name="foot_contact",
+    primary=ContactMatch(mode="geom", pattern=r"^[FR][LR]_foot_collision$", entity="robot"),
+    secondary=ContactMatch(mode="body", pattern="terrain"),
+    fields=("found", "force"),
+    reduce="none",
+    num_slots=4,  # One slot per foot
+  )
   # Scale action scale for difficult maneuvers (backflip)
   # Increase multiplier to allow more force generation for takeoff
   action_scale_multiplier = 1.0  # 1.0 = default, 2.0 = double the action range
@@ -62,7 +72,7 @@ def UNITREE_GO2_FLAT_TRACKING_ENV_CFG() -> ManagerBasedRlEnvCfg:
       "RL_calf",
     ),
     base_com_body_name="trunk",
-    sensors=(self_collision_cfg,),
+    sensors=(self_collision_cfg, foot_contact_cfg),
     pose_range={
       "x": (-0.05, 0.05),
       "y": (-0.05, 0.05),

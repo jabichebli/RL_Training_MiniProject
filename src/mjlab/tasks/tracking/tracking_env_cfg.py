@@ -161,6 +161,20 @@ def create_tracking_env_cfg(
       func=mdp.joint_vel_rel, noise=Unoise(n_min=-0.5, n_max=0.5)
     ),
     "actions": ObservationTermCfg(func=mdp.last_action),
+    "foot_contact_forces": ObservationTermCfg(
+      func=mdp.foot_contact_forces,
+      params={"sensor_name": "foot_contact"},
+      noise=Unoise(n_min=-5.0, n_max=5.0),  # Noise for force measurements
+    ),
+    "foot_contact_binary": ObservationTermCfg(
+      func=mdp.foot_contact_binary,
+      params={"sensor_name": "foot_contact"},
+    ),
+    "actuator_forces": ObservationTermCfg(
+      func=mdp.actuator_forces,
+      params={"asset_name": "robot"},
+      noise=Unoise(n_min=-2.0, n_max=2.0),  # Noise for torque measurements
+    ),
   }
 
   critic_terms = {
@@ -188,6 +202,18 @@ def create_tracking_env_cfg(
     "joint_pos": ObservationTermCfg(func=mdp.joint_pos_rel),
     "joint_vel": ObservationTermCfg(func=mdp.joint_vel_rel),
     "actions": ObservationTermCfg(func=mdp.last_action),
+    "foot_contact_forces": ObservationTermCfg(
+      func=mdp.foot_contact_forces,
+      params={"sensor_name": "foot_contact"},
+    ),
+    "foot_contact_binary": ObservationTermCfg(
+      func=mdp.foot_contact_binary,
+      params={"sensor_name": "foot_contact"},
+    ),
+    "actuator_forces": ObservationTermCfg(
+      func=mdp.actuator_forces,
+      params={"asset_name": "robot"},
+    ),
   }
 
   observations = {
@@ -276,6 +302,11 @@ def create_tracking_env_cfg(
       weight=5.0,  # High weight to encourage takeoff velocity
       params={"command_name": "motion", "std": 1.0},
     ),
+    "motion_anchor_vertical_vel": RewardTermCfg(
+      func=mdp.motion_anchor_vertical_velocity_reward,
+      weight=8.0,  # Very high weight for vertical velocity (critical for takeoff)
+      params={"command_name": "motion", "std": 0.8},
+    ),
     "motion_body_lin_vel": RewardTermCfg(
       func=mdp.motion_global_body_linear_velocity_error_exp,
       weight=3.0,  # Increased to encourage takeoff
@@ -288,7 +319,7 @@ def create_tracking_env_cfg(
     ),
     "motion_joint_pos": RewardTermCfg(
       func=mdp.motion_joint_position_error_exp,
-      weight=3.0,  # Reduced to allow more dynamic movements
+      weight=1.5,  # Further reduced to allow aggressive push-off deviations
       params={"command_name": "motion", "std": 0.5},
     ),
     # "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-1e-5),  # Disabled to allow explosive movements

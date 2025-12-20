@@ -137,6 +137,22 @@ def motion_anchor_linear_velocity_error_exp(
   return torch.exp(-error / std**2)
 
 
+def motion_anchor_vertical_velocity_reward(
+  env: ManagerBasedRlEnv, command_name: str, std: float
+) -> torch.Tensor:
+  """Reward for matching vertical (z) velocity, especially important for takeoff.
+  
+  This reward specifically targets the vertical component of velocity, which is
+  critical for backflips and other maneuvers requiring takeoff.
+  """
+  command = cast(MotionCommand, env.command_manager.get_term(command_name))
+  # Focus on z-component (vertical velocity)
+  ref_vel_z = command.anchor_lin_vel_w[:, 2]  # [B]
+  robot_vel_z = command.robot_anchor_lin_vel_w[:, 2]  # [B]
+  error = torch.square(ref_vel_z - robot_vel_z)
+  return torch.exp(-error / std**2)
+
+
 def self_collision_cost(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
   """Cost that returns the number of self-collisions detected by a sensor."""
   sensor: ContactSensor = env.scene[sensor_name]

@@ -27,6 +27,8 @@ class Config:
     """Scale factor for PD gains (applied to both kp and kd)."""
     gravity_scale: float = 1.0
     """Scale factor for gravity (1.0 = normal, 0.5 = half gravity, etc.)."""
+    effort_scale: float = 1.0
+    """Scale factor for actuator effort limits (1.0 = normal, 2.0 = double torque, etc.)."""
 
 
 def main():
@@ -50,6 +52,10 @@ def main():
     # Apply gravity scale
     if cfg.gravity_scale != 1.0:
         model.opt.gravity[2] *= cfg.gravity_scale  # Scale z-component (vertical gravity)
+    # Apply effort scale to actuator force limits
+    if cfg.effort_scale != 1.0:
+        model.actuator_forcerange[:, 0] *= cfg.effort_scale
+        model.actuator_forcerange[:, 1] *= cfg.effort_scale
     motion_timestep = 0.02
     steps_per_frame = int(motion_timestep / model.opt.timestep)
 
@@ -150,19 +156,6 @@ def main():
                     
                     # Clipping occurs here
                     data.ctrl[:] = np.clip(ctrl, model.actuator_ctrlrange[:, 0], model.actuator_ctrlrange[:, 1])
-                    
-                    # Monitor when reference is near -2.3 for rear calf joints
-                    if physics_step == 0:
-                        for i, jname in enumerate(joint_names):
-                            if 'calf' in jname.lower() and ('RR' in jname or 'RL' in jname):
-                                ref_val = ref_pos[i]
-                                curr_val = data.qpos[7 + i]
-                                if ref_val < -2.0 and abs(ref_val - curr_val) > 0.1:  # Ref near -2.3 but not reaching it
-                                    act_idx = next((a for a in range(model.nu) if actuator_to_joint[a] == i), None)
-                                    if act_idx is not None:
-                                        ctrl_val = ctrl[act_idx]
-                                        ctrl_applied = data.ctrl[act_idx]
-                                        print(f"Frame {frame_idx}: {jname} ref={ref_val:.3f} curr={curr_val:.3f} err={ref_val-curr_val:.3f} ctrl={ctrl_val:.1f} applied={ctrl_applied:.1f}")
                     
                     mujoco.mj_step(model, data)
                     physics_step += 1
