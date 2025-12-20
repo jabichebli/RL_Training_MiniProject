@@ -25,6 +25,8 @@ class Config:
     """Use realistic PD gains. If False, use very high gains for kinematic replay."""
     gain_scale: float = 1.0
     """Scale factor for PD gains (applied to both kp and kd)."""
+    gravity_scale: float = 1.0
+    """Scale factor for gravity (1.0 = normal, 0.5 = half gravity, etc.)."""
 
 
 def main():
@@ -45,6 +47,9 @@ def main():
     model = spec.compile()
     data = mujoco.MjData(model)
     model.opt.timestep = 0.002
+    # Apply gravity scale
+    if cfg.gravity_scale != 1.0:
+        model.opt.gravity[2] *= cfg.gravity_scale  # Scale z-component (vertical gravity)
     motion_timestep = 0.02
     steps_per_frame = int(motion_timestep / model.opt.timestep)
 

@@ -204,12 +204,13 @@ def create_tracking_env_cfg(
   }
 
   events: dict[str, EventTermCfg] = {
-    "push_robot": EventTermCfg(
-      func=mdp.push_by_setting_velocity,
-      mode="interval",
-      interval_range_s=(1.0, 3.0),
-      params={"velocity_range": velocity_range},
-    ),
+    # Disabled push_robot event for difficult maneuvers (backflip) - interferes with takeoff
+    # "push_robot": EventTermCfg(
+    #   func=mdp.push_by_setting_velocity,
+    #   mode="interval",
+    #   interval_range_s=(1.0, 3.0),
+    #   params={"velocity_range": velocity_range},
+    # ),
     "base_com": EventTermCfg(
       mode="startup",
       func=mdp.randomize_field,
@@ -270,19 +271,24 @@ def create_tracking_env_cfg(
       weight=1.0,
       params={"command_name": "motion", "std": 0.4},
     ),
+    "motion_anchor_lin_vel": RewardTermCfg(
+      func=mdp.motion_anchor_linear_velocity_error_exp,
+      weight=5.0,  # High weight to encourage takeoff velocity
+      params={"command_name": "motion", "std": 1.0},
+    ),
     "motion_body_lin_vel": RewardTermCfg(
       func=mdp.motion_global_body_linear_velocity_error_exp,
-      weight=1.0,
+      weight=3.0,  # Increased to encourage takeoff
       params={"command_name": "motion", "std": 1.0},
     ),
     "motion_body_ang_vel": RewardTermCfg(
       func=mdp.motion_global_body_angular_velocity_error_exp,
-      weight=1.0,
+      weight=2.0,  # Increased to encourage rotation during backflip
       params={"command_name": "motion", "std": 3.14},
     ),
     "motion_joint_pos": RewardTermCfg(
       func=mdp.motion_joint_position_error_exp,
-      weight=5.0,
+      weight=3.0,  # Reduced to allow more dynamic movements
       params={"command_name": "motion", "std": 0.5},
     ),
     # "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-1e-5),  # Disabled to allow explosive movements
@@ -300,26 +306,10 @@ def create_tracking_env_cfg(
 
   terminations: dict[str, TerminationTermCfg] = {
     "time_out": TerminationTermCfg(func=mdp.time_out, time_out=True),
-    "anchor_pos": TerminationTermCfg(
-      func=mdp.bad_anchor_pos_z_only,
-      params={"command_name": "motion", "threshold": 1.0},
-    ),
-    "anchor_ori": TerminationTermCfg(
-      func=mdp.bad_anchor_ori,
-      params={
-        "asset_cfg": SceneEntityCfg("robot"),
-        "command_name": "motion",
-        "threshold": 2.0,
-      },
-    ),
-    "ee_body_pos": TerminationTermCfg(
-      func=mdp.bad_motion_body_pos_z_only,
-      params={
-        "command_name": "motion",
-        "threshold": 1.0,
-        "body_names": ee_body_names,
-      },
-    ),
+    # Removed pose-related terminations for difficult maneuvers (backflip)
+    # "anchor_pos": TerminationTermCfg(...),
+    # "anchor_ori": TerminationTermCfg(...),
+    # "ee_body_pos": TerminationTermCfg(...),
   }
 
   return ManagerBasedRlEnvCfg(

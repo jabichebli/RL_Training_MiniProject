@@ -27,9 +27,15 @@ def UNITREE_GO2_FLAT_TRACKING_ENV_CFG() -> ManagerBasedRlEnvCfg:
     reduce="none",
     num_slots=1,
   )
+  # Scale action scale for difficult maneuvers (backflip)
+  # Increase multiplier to allow more force generation for takeoff
+  action_scale_multiplier = 1.0  # 1.0 = default, 2.0 = double the action range
+  scaled_action_scale = {
+    k: v * action_scale_multiplier for k, v in GO2_ACTION_SCALE.items()
+  }
   return create_tracking_env_cfg(
     robot_cfg=get_go2_robot_cfg(),
-    action_scale=GO2_ACTION_SCALE,
+    action_scale=scaled_action_scale,
     viewer_body_name="trunk",
     motion_file="",
     anchor_body_name="trunk",
