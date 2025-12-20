@@ -23,6 +23,8 @@ class Config:
     output_file: str = "motion_physics.npz"
     use_controller: bool = True
     """Use realistic PD gains. If False, use very high gains for kinematic replay."""
+    gain_scale: float = 1.0
+    """Scale factor for PD gains (applied to both kp and kd)."""
 
 
 def main():
@@ -74,21 +76,30 @@ def main():
                        else 15.89 for i in range(model.nu)])
         kd = np.array([4.05 if 'calf' in model.joint(model.actuator(i).trnid[0]).name.lower() 
                        else 1.01 for i in range(model.nu)])
+        kp *= cfg.gain_scale
+        kd *= cfg.gain_scale
     else:
         # Very high gains for kinematic replay
         kp = np.full(model.nu, 10000.0)
         kd = np.full(model.nu, 100.0)
-        # Remove control range limits for high-gain kinematic replay
-        model.actuator_ctrlrange[:, 0] = -10000.0
-        model.actuator_ctrlrange[:, 1] = 10000.0
 
-    # Check motion file range for calf joints
+    # Check motion file range for calf joints and adjust joint limits if needed
     print("\nCalf joint motion file range:")
     for i, jname in enumerate(joint_names):
         if 'calf' in jname.lower():
             min_val = motion["joint_pos"][:, i].min()
             max_val = motion["joint_pos"][:, i].max()
             print(f"  {jname:20s}: min={min_val:.3f}, max={max_val:.3f}")
+            
+            # Find corresponding joint in model and check/adjust limits
+            for jnt_id in range(model.njnt):
+                if model.joint(jnt_id).name == jname:
+                    jnt_range = model.jnt_range[jnt_id]
+                    if jnt_range[0] > min_val or jnt_range[1] < max_val:
+                        print(f"    Adjusting limits from [{jnt_range[0]:.3f}, {jnt_range[1]:.3f}] to [{min_val - 0.1:.3f}, {max_val + 0.1:.3f}]")
+                        model.jnt_range[jnt_id, 0] = min_val - 0.1
+                        model.jnt_range[jnt_id, 1] = max_val + 0.1
+                    break
 
     # Initialize
     data.qpos[2] = 0.29
@@ -110,25 +121,15 @@ def main():
         }
 
     frame_idx, physics_step = 0, 0
-    paused, recorded = False, False
-
-    def key_callback(keycode):
-        nonlocal paused, frame_idx, physics_step
-        if keycode == 32:
-            paused = not paused
-        elif keycode in (82, 114):
-            frame_idx, physics_step = 0, 0
-            data.qpos[7:] = motion["joint_pos"][0]
-            data.qvel[6:] = motion["joint_vel"][0]
-            mujoco.mj_forward(model, data)
+    paused, recorded, should_exit = False, False, False
 
     try:
-        with mujoco.viewer.launch_passive(model, data, key_callback=key_callback) as viewer:
+        with mujoco.viewer.launch_passive(model, data) as viewer:
             viewer.cam.lookat[:] = [0, 0, 0.3]
             viewer.cam.distance = 3.0
             viewer.cam.elevation = -20
 
-            while viewer.is_running():
+            while viewer.is_running() and not should_exit:
                 if not paused:
                     ref_pos = motion["joint_pos"][frame_idx]
                     ref_vel = motion["joint_vel"][frame_idx]
@@ -190,13 +191,11 @@ def main():
                                 recorded = True
                             frame_idx = 0 if cfg.loop else n_frames - 1
                             if not cfg.loop:
-                                break
+                                should_exit = True
 
-                if viewer.is_running():
+                if viewer.is_running() and not should_exit:
                     viewer.sync()
                     time.sleep(model.opt.timestep)
-                else:
-                    break
     except KeyboardInterrupt:
         print("\nInterrupted by user")
         # Save output if requested and not already saved

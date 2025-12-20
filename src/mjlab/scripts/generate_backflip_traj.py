@@ -83,51 +83,61 @@ def backflip_trajectory(t: float, use_pauses: bool = False) -> tuple[np.ndarray,
     t_1 = t_1_transition + pause
     fr_thigh_1 = 1.4
     fr_calf_1 = -2.3
-    rr_thigh_1 = 0.45
-    rr_calf_1 = -2.1
+    rr_thigh_1 = 0.1
+    rr_calf_1 = -1.9
     
     # --- Phase 2: Pushing with arms ---
     x_2 = -0.05
     z_2 = 0.31
     theta_2 = 20.0
-    t_2_transition = t_1 + 0.1
+    t_2_transition = t_1 + 0.12
     t_2 = t_2_transition + pause
     fr_thigh_2 = 0.8
     fr_calf_2 = -0.3
-    rr_thigh_2 = 0.9
+    rr_thigh_2 = 0.6
     rr_calf_2 = -1.8
     
     # --- Phase 3:  ---
     x_3 = -0.1
     z_3 = 0.39
     theta_3 = 65.0
-    t_3_transition = t_2 + 0.07
+    t_3_transition = t_2 + 0.11
     t_3 = t_3_transition + pause
     fr_thigh_3 = 1.3
     fr_calf_3 = -1.6
-    rr_thigh_3 = 1.7
+    rr_thigh_3 = 1.6
     rr_calf_3 = -1.7
     
     # --- Phase 4: Final push with legs ---
     x_4 = -0.4
     z_4 = 0.55
     theta_4 = 110.0
-    t_4_transition = t_3 + 0.08
+    t_4_transition = t_3 + 0.13
     t_4 = t_4_transition + pause
     fr_thigh_4 = 0.6
     fr_calf_4 = -1.6
-    rr_thigh_4 = 2.4
-    rr_calf_4 = -0.8
+    rr_thigh_4 = 2.9
+    rr_calf_4 = -0.7
     
-    # --- Phase 5: Flight ---
-    theta_5 = 330.0
-    t_5 = t_4 + 0.45
+    # --- Phase 5a: Flight (first half with leg retraction) ---
+    theta_5a = 200
+    t_5a_duration = 0.15  # Duration of first half of flight
+    t_5a = t_4 + t_5a_duration
+    fr_thigh_5a = 0.6
+    fr_calf_5a = -1.6
+    rr_thigh_5a = 1.0
+    rr_calf_5a = -1.9
+    
+    # --- Phase 5b: Flight (second half, continuing ballistic) ---
+    theta_5b = 300.0
+    t_5b_duration = 0.3  # Duration of second half of flight
+    t_5b = t_5a + t_5b_duration
     
     # --- Phase 6: Landing ---
     x_6 = -0.7
     z_6 = 0.29
     theta_6 = 360.0
-    t_6 = t_5 + 0.3
+    t_6 = t_5b + 0.45
     
     # ============================================================================
     
@@ -215,31 +225,47 @@ def backflip_trajectory(t: float, use_pauses: bool = False) -> tuple[np.ndarray,
         fr_thigh, fr_calf = fr_thigh_4, fr_calf_4
         rr_thigh, rr_calf = rr_thigh_4, rr_calf_4
     
-    # Phase 5: Flight (ballistic)
-    elif t < t_5:
+    # Phase 5a: Flight (first half with leg retraction, ballistic)
+    elif t < t_5a:
         dt = t - t_4
-        alpha = dt / (t_5 - t_4)
+        alpha = dt / t_5a_duration
         x = x_4 - 0.5 * dt
         z = z_4 + v_z0 * dt - 0.5 * g * dt * dt
-        theta = theta_4 + alpha * (theta_5 - theta_4)
-        fr_thigh = fr_thigh_4
-        fr_calf = fr_calf_4
-        rr_thigh = rr_thigh_4
-        rr_calf = rr_calf_4
+        theta = theta_4 + alpha * (theta_5a - theta_4)
+        # Transition legs to retracted position
+        s = alpha * alpha * (3.0 - 2.0 * alpha)  # smoothstep
+        fr_thigh = fr_thigh_4 + (fr_thigh_5a - fr_thigh_4) * s
+        fr_calf = fr_calf_4 + (fr_calf_5a - fr_calf_4) * s
+        rr_thigh = rr_thigh_4 + (rr_thigh_5a - rr_thigh_4) * s
+        rr_calf = rr_calf_4 + (rr_calf_5a - rr_calf_4) * s
+    
+    # Phase 5b: Flight (second half, continuing ballistic with retracted legs)
+    elif t < t_5b:
+        dt = t - t_4
+        dt_5a = t_5a - t_4
+        alpha = (dt - dt_5a) / t_5b_duration
+        x = x_4 - 0.5 * dt
+        z = z_4 + v_z0 * dt - 0.5 * g * dt * dt
+        theta = theta_5a + alpha * (theta_5b - theta_5a)
+        # Keep legs in retracted position
+        fr_thigh = fr_thigh_5a
+        fr_calf = fr_calf_5a
+        rr_thigh = rr_thigh_5a
+        rr_calf = rr_calf_5a
     
     # Phase 6: Landing
     elif t < t_6:
-        s = (t - t_5) / (t_6 - t_5)
+        s = (t - t_5b) / (t_6 - t_5b)
         s = s * s * (3.0 - 2.0 * s)
-        x_5_end = x_4 - 0.5 * (t_5 - t_4)
-        z_5_end = z_4 + v_z0 * (t_5 - t_4) - 0.5 * g * (t_5 - t_4) ** 2
-        x = x_5_end + (x_6 - x_5_end) * s
-        z = z_5_end + (z_6 - z_5_end) * s
-        theta = theta_5 + (theta_6 - theta_5) * s
-        fr_thigh = fr_thigh_4 + (fr_thigh_0 - fr_thigh_4) * s
-        fr_calf = fr_calf_4 + (fr_calf_0 - fr_calf_4) * s
-        rr_thigh = rr_thigh_4 + (rr_thigh_0 - rr_thigh_4) * s
-        rr_calf = rr_calf_4 + (rr_calf_0 - rr_calf_4) * s
+        x_5b_end = x_4 - 0.5 * (t_5b - t_4)
+        z_5b_end = z_4 + v_z0 * (t_5b - t_4) - 0.5 * g * (t_5b - t_4) ** 2
+        x = x_5b_end + (x_6 - x_5b_end) * s
+        z = z_5b_end + (z_6 - z_5b_end) * s
+        theta = theta_5b + (theta_6 - theta_5b) * s
+        fr_thigh = fr_thigh_5a + (fr_thigh_0 - fr_thigh_5a) * s
+        fr_calf = fr_calf_5a + (fr_calf_0 - fr_calf_5a) * s
+        rr_thigh = rr_thigh_5a + (rr_thigh_0 - rr_thigh_5a) * s
+        rr_calf = rr_calf_5a + (rr_calf_0 - rr_calf_5a) * s
     
     # Hold final
     else:
